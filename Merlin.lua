@@ -16,15 +16,6 @@ Merlin.config = {
     useIcons = true
 }
 
-local function merlinsBeard(level, msg, ...)
-    -- Hate all of the below, but I can't be arsed ATM.
-    ---@diagnostic disable-next-line: unknown-diag-code
-    ---@diagnostic disable-next-line: unused-function, unnecessary-if
-    if not Merlin.config.debug then return end
-    local prefix = Merlin.config.logPrefix .. string.rep("  ", level)
-    print(prefix .. string.format(msg, ...))
-end
-
 local LUA_METAMETHODS = {
     __tostring = true, __call = true, __concat = true,
     __add = true, __sub = true, __mul = true, __div = true,
