@@ -13,3 +13,7 @@ I don't have much documentation yet as I'm writing and using at the same time so
 
 #### Worth Note
 The name `Merlin` is just a placeholder name because I knew I was gonna be playing around a lot with LUA's magic methods.
+
+#### Also
+I promise I'm good at documentation. I just don't think it's time yet but I'm happy to show what I intend, though, I'd
+rather people just use it wildly so I can see what needs to be addressed, fixed, ignored.
