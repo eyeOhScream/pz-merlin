@@ -3,26 +3,30 @@
 -- features to understand how much "fun" stuff I can do to emulate OOP principles.
 
 ---@class Merlin
----@field config { debug: boolean, logPrefix: string, useIcons: boolean }
+---@field config { debug: boolean, logPrefix: string }
 ---@field _Type string
 ---@field _Parent table
 ---@field _attributes table
 ---@field _methods table
 ---@field __init function
 Merlin = {}
+
 Merlin.config = {
     debug = false,
     logPrefix = "[Merlin]", -- need a wand icon or something
-    useIcons = true
 }
 
-local function beard(level, msg, ...)
-    -- Hate all of the this
-    ---@diagnostic disable-next-line: unknown-diag-code
-    ---@diagnostic disable-next-line: unused-function, unnecessary-if
-    if not Merlin.config.debug then return end
-    local prefix = Merlin.config.logPrefix .. string.rep("  ", level)
-    print(prefix .. string.format(msg, ...))
+local function log(level, message, ...)
+    ---@diagnostic disable-next-line: unnecessary-if
+    if not (Merlin.config and Merlin.config.debug) then return end
+
+    local indent = string.rep(" ", level or 0)
+    local prefix = Merlin.config.logPrefix or "[Merlin] "
+
+    pcall(function (...)
+        print(string.format("%s%s%s", prefix, indent, string.format(message, ...)))
+    end, ...)
+    
 end
 
 local LUA_METAMETHODS = {
@@ -32,20 +36,24 @@ local LUA_METAMETHODS = {
     __eq = true, __lt = true, __le = true, __gc = true
 }
 
-local function recursiveSearch(class, bucketName, key)
+local function recursiveSearch(class, bucketName, key, level)
+    level = level or 1
     -- This needs its own cache
-    print("     -- recursive class crawl for [BUCKET] '" .. bucketName .. "'" )
+    log(level, "Crawling [%s.%s] for '%s'...",rawget(class, "_Type"), bucketName, key)
+    -- print("🔍 Crawling [%s] for '%s'...", bucketName, key)
     local current = class
     while current do
         local bucket = rawget(current, bucketName)
         local value = bucket and bucket[key]
         if value ~= nil then
+            log(level + 1, "Found in %s", rawget(current, "_Type") or "Unknown")
             return value
         end
 
         current = rawget(current, "_Parent")
     end
 
+    log(level + 1, "[%s] Not found")
     return nil
 end
 
@@ -60,18 +68,23 @@ local function useStaff(subClass, typeName, parent)
 
     local staff = {
         __index = function(table, key)
-            print("Magic GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
+            log(1, "GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
+            -- log(1, "Magic GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
+            -- print("Magic GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
 
             -- 1. Check method cache.
-            print("     -- methodCache check")
+            -- print("     -- methodCache check")
+            log(4, "Method Cache Check")
             local cached = methodCache[key]
             if cached ~= nil then return cached end
 
-            print("     -- instance _attributes check")
+            -- print("     -- instance _attributes check")
+            log(4, "Instance Attributes Check")
             local instanceAttributes = rawget(table, "_attributes")
             if instanceAttributes and instanceAttributes[key] ~= nil then return instanceAttributes[key] end
 
-            print("     -- class _attributes check")
+            -- print("     -- class _attributes check")
+            log(4, "Class Attributes Check")
             local defaultAttributes = rawget(subClass, "_attributes")[key]
             if defaultAttributes ~= nil then return defaultAttributes end
 
@@ -86,19 +99,23 @@ local function useStaff(subClass, typeName, parent)
                 return recursiveMethod
             end
            
-            print("     -- direct instance table check fallback")
+            -- print("     -- direct instance table check fallback")
+            log(4, "Direct Instance Table Check")
             local result = rawget(table, key)
             if result ~= nil then return result end
 
-            print("     -- return nil")
+            -- print("     -- return nil")
+            log(4, "Return nil")
             return nil
         end,
 
         __newindex = function (table, key, value)
-            print( "Magic SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
+            -- print( "Magic SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
+            log(1, "SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
 
             if LUA_METAMETHODS[key] then
-                print("     -- system hook applied: " .. key)
+                -- print("     -- system hook applied: " .. key)
+                log(4, "System Hook Applied: " .. key)
                 rawset(table, key, value)
                 return
             end
@@ -106,10 +123,12 @@ local function useStaff(subClass, typeName, parent)
             if type(value) == "function" then
                 local methods = rawget(table, "_methods")
                 if methods then
-                    print("     -- method cached on class")
+                    -- print("     -- method cached on class")
+                    log(4, "Method Cached on Class")
                     methods[key] = value
                 else
-                    print("     -- method cached on instance in attributes")
+                    -- print("     -- method cached on instance in attributes")
+                    log(4, "Method/Function Cached in Instance Attributes")
                     rawget(table, "_attributes")[key] = value
                 end
                 if key == "__init" then
@@ -118,10 +137,12 @@ local function useStaff(subClass, typeName, parent)
             else
                 local attributes = rawget(table, "_attributes")
                 if (attributes) then
-                    print("     -- attribute cached on instance")
+                    -- print("     -- attribute cached on instance")
+                    log(4, "Attribute Cached on Instance")
                     attributes[key] = value
                 else
-                    print("     -- fallback stored directly on table")
+                    -- print("     -- fallback stored directly on table")
+                    log(4, "Fallback Stored Directly on Table")
                     rawset(table, key, value)
                 end
             end
@@ -140,11 +161,10 @@ end
 
 ---@return table|Merlin
 function Merlin:new(...)
-    -- original 'new' code
     local instance = {
         _attributes = {},
+        _Type = "Merlin",
         _Class = self,
-        --  __init = {},
     }
     setmetatable(instance, getmetatable(self))
 
@@ -175,7 +195,7 @@ function Merlin:new(...)
 end
 
 function Merlin:__init()
-    print("__init fired on [Merlin]")
+    log(1, "__init called on %s", Merlin.config.logPrefix)
 end
 
 function Merlin:setAttribute(attribute, value)
@@ -210,9 +230,7 @@ function Merlin:belongsTo(typeName)
     return false
 end
 function Merlin.getAttributeGetter(instance, attribute)
-    -- local getterCache = rawget(instance, "_")
     local getterName = "get"  .. Merlin.firstToUpper(attribute)
-    -- local attributeGetter = instance[getterName] -- or recursiveSearch(instance, "_methods", getterName)
     local attributeGetter = recursiveSearch(rawget(instance, "_Class") or instance, "_methods", getterName)
 
     return attributeGetter
