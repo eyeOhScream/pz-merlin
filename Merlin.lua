@@ -16,6 +16,23 @@ Merlin.config = {
     logPrefix = "[Merlin]", -- need a wand icon or something
 }
 
+local json = require("json")
+
+local function stripMagic(table)
+    if type(table) ~= "table" then return table end
+    
+    -- If it's a Merlin object, get its attributes
+    local attributes = rawget(table, "_attributes")
+    local target = attributes or table
+    
+    local clean = {}
+    for key, value in pairs(target) do
+        clean[key] = stripMagic(value)
+    end
+
+    return clean
+end
+
 local function log(level, message, ...)
     ---@diagnostic disable-next-line: unnecessary-if
     if not (Merlin.config and Merlin.config.debug) then return end
@@ -37,7 +54,7 @@ local LUA_METAMETHODS = {
 }
 
 local function recursiveSearch(class, bucketName, key, level)
-    level = level or 1
+    level = level or 5
     -- This needs its own cache
     log(level, "Crawling [%s.%s] for '%s'...",rawget(class, "_Type"), bucketName, key)
     -- print("🔍 Crawling [%s] for '%s'...", bucketName, key)
@@ -69,8 +86,6 @@ local function useStaff(subClass, typeName, parent)
     local staff = {
         __index = function(table, key)
             log(1, "GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
-            -- log(1, "Magic GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
-            -- print("Magic GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
 
             -- 1. Check method cache.
             -- print("     -- methodCache check")
@@ -85,10 +100,12 @@ local function useStaff(subClass, typeName, parent)
 
             -- print("     -- class _attributes check")
             log(4, "Class Attributes Check")
-            local defaultAttributes = rawget(subClass, "_attributes")[key]
+            -- local defaultAttributes = rawget(subClass, "_attributes")[key]
+            local defaultAttributes = rawget(rawget(table, "_Class") or table, "_attributes")[key]
             if defaultAttributes ~= nil then return defaultAttributes end
 
-            local recursiveAttribute = recursiveSearch(subClass, "_attributes", key)
+            -- local recursiveAttribute = recursiveSearch(subClass, "_attributes", key)
+            local recursiveAttribute = recursiveSearch(rawget(table, "_Class") or table, "_attributes", key)
             if recursiveAttribute ~= nil then return recursiveAttribute end
 
             local recursiveMethod = recursiveSearch(subClass, "_methods", key)
@@ -163,33 +180,12 @@ end
 function Merlin:new(...)
     local instance = {
         _attributes = {},
-        _Type = "Merlin",
         _Class = self,
     }
     setmetatable(instance, getmetatable(self))
 
-    local initChain = rawget(self, "_initChain")
-    if not initChain then
-        initChain = {}
-        local current = self
-
-        while current do
-            local methods = rawget(current, "_methods")
-            ---@type function|nil
-            local init = methods and methods["__init"]
-            if init then
-                table.insert(initChain, 1, init) -- parent first
-            end
-
-            -- Next parent
-            current = rawget(current, "_Parent")
-        end
-        rawset(self, "_initChain", initChain)
-    end
-
-    for _, init in ipairs(initChain) do
-        init(instance, ...)
-    end
+    local init = self.__init
+    init(instance, ...)
 
     return instance
 end
@@ -229,6 +225,60 @@ function Merlin:belongsTo(typeName)
 
     return false
 end
+
+function Merlin:super()
+    local cache = rawget(self, "_super_cache")
+    
+    if cache then
+        log(1, "Super Cache Hit")
+        return cache
+    end
+
+    local class = rawget(self, "_Class") or self
+    local parent = rawget(class, "_Parent")
+
+    if not parent then
+        error(Merlin.config.logPrefix .. " " .. (rawget(class, "_Type") or "Unknown") .. " has no Parent")
+    end
+
+    local proxy = setmetatable({}, {
+        __index = function(_, key)
+            local method = parent[key]
+            if type(method) == "function" then
+                return function(_, ...)
+                    return method(self, ...)
+                end
+            end
+            return method
+        end
+    })
+    
+    log(1, "Super Proxy Cached")
+    rawset(self, "_super_cache", proxy)
+    return proxy
+end
+
+function Merlin:toString()
+    local raw = tostring(self)
+    local id = raw:gsub("table: ", ""):gsub(" ", "")
+
+    local class = rawget(self, "_Class") or self
+    local typeName = rawget(class, "_Type") or "Merlin"
+
+    local attributeStrings = {}
+    local attributes = rawget(self, "_attributes")
+    for key, value in pairs(attributes) do
+        table.insert(attributeStrings, string.format("%s=%s", key, tostring(value)))
+    end
+
+    local attributesPreview = #attributeStrings > 0 and table.concat(attributeStrings, ", ") or "nil"
+    return string.format("<%s|%s> { %s }", typeName, id, attributesPreview)
+end
+
+function Merlin:toCleanTable()
+    return stripMagic(self)
+end
+
 function Merlin.getAttributeGetter(instance, attribute)
     local getterName = "get"  .. Merlin.firstToUpper(attribute)
     local attributeGetter = recursiveSearch(rawget(instance, "_Class") or instance, "_methods", getterName)
