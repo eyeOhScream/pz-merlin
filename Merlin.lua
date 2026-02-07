@@ -197,7 +197,7 @@ function Merlin:getAttribute(attribute, default)
     return default
 end
 
-function Merlin:ofType(typeName)
+function Merlin:belongsTo(typeName)
     local current = rawget(self, "_Class") or self
 
     while current do
