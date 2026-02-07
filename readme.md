@@ -3,7 +3,7 @@ This is the initial commit.
 I've left in the .vscode folder and files because who cares it could help someone.
 
 ## Merlin
-This is a tinkler project to bring in OOP ideals into LUA. I'm sure that has been done a thousand times, but I'm here to add 1 to that counter.
+This is a tinker project to bring in OOP ideals into LUA. I'm sure that has been done a thousand times, but I'm here to add 1 to that counter.
 
 #### Basic Use
 This is based on the Project Zomboid LUA objects in that you are only
