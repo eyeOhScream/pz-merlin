@@ -1,6 +1,6 @@
 ## A bunch of .net ignore stuff
 unknown.lua
-
+profiling.lua
 
 
 ## Ignore Visual Studio temporary files, build results, and

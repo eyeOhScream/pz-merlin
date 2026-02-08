@@ -20,6 +20,9 @@ Merlin = {
 }
 
 local json = require("json")
+-- who doesn't love some premature optimizations?
+local rawget, rawset = rawget, rawset
+local type, getmetatable = type, getmetatable
 
 ---@param typeName string
 ---@param class Merlin
@@ -27,7 +30,6 @@ local function registerClass(typeName, class)
     Merlin._Registry[typeName] = class
 end
 
----comment
 ---@param level integer
 ---@param message string
 ---@param ... any
@@ -59,22 +61,20 @@ local LUA_METAMETHODS = {
 ---@return any
 local function recursiveSearch(class, bucketName, key, level)
     level = level or 5
-    -- This needs its own cache
-    log(level, "Crawling [%s.%s] for '%s'...",rawget(class, "_Type"), bucketName, key)
-    -- print("🔍 Crawling [%s] for '%s'...", bucketName, key)
+    -- log(level, "Crawling [%s.%s] for '%s'...",rawget(class, "_Type"), bucketName, key)
     local current = class
     while current do
         local bucket = rawget(current, bucketName)
         local value = bucket and bucket[key]
         if value ~= nil then
-            log(level + 1, "Found in %s", rawget(current, "_Type") or "Unknown")
+            -- log(level + 1, "Found in %s", rawget(current, "_Type") or "Unknown")
             return value
         end
 
         current = rawget(current, "_Parent")
     end
 
-    log(level + 1, "[%s] Not found")
+    -- log(level + 1, "[%s] Not found")
     return nil
 end
 
@@ -103,59 +103,64 @@ local function useStaff(subClass, typeName, parent)
 
     registerClass(typeName, subClass)
 
-    local methodCache = setmetatable({}, { __mode = "v"} )
-    local getterCache = setmetatable({}, { __mode = "k" })
+    -- local methodCache = setmetatable({}, { __mode = "v"} )
+    -- local getterCache = setmetatable({}, { __mode = "k" })
 
     local staff = {
         __index = function(table, key)
-            log(1, "GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
-
-            -- 1. Check method cache.
-            -- print("     -- methodCache check")
-            log(4, "Method Cache Check")
-            local cached = methodCache[key]
-            if cached ~= nil then return cached end
-
-            -- print("     -- instance _attributes check")
-            log(4, "Instance Attributes Check")
+            -- log(1, "GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
+            
+            -- Instance attributes check
+            -- log(4, "Instance Attributes Check")
             local instanceAttributes = rawget(table, "_attributes")
             if instanceAttributes and instanceAttributes[key] ~= nil then return instanceAttributes[key] end
 
-            -- print("     -- class _attributes check")
-            log(4, "Class Attributes Check")
-            -- local defaultAttributes = rawget(subClass, "_attributes")[key]
-            local defaultAttributes = rawget(rawget(table, "_Class") or table, "_attributes")[key]
-            if defaultAttributes ~= nil then return defaultAttributes end
+            -- -- Check method cache
+            -- log(4, "Method Cache Check")
+            local cache = rawget(table, "_method_cache")
+            if cache and cache[key] ~= nil then return cache[key] end
 
-            -- local recursiveAttribute = recursiveSearch(subClass, "_attributes", key)
-            local recursiveAttribute = recursiveSearch(rawget(table, "_Class") or table, "_attributes", key)
-            if recursiveAttribute ~= nil then return recursiveAttribute end
+            local current = rawget(table, "_Class") or subClass
+            while current do
+                -- log(4, "Method Check on %s", rawget(current, "_Type"))
+                local methods = rawget(current, "_methods")
+                local value = methods and methods[key]
 
-            local recursiveMethod = recursiveSearch(subClass, "_methods", key)
-            if recursiveMethod ~= nil then
-                -- This line could cause issues in the future with dynamically added methods/functions
-                -- For that matter all method/function caches may struggle with this.
-                methodCache[key] = recursiveMethod
-                return recursiveMethod
+                if value ~= nil then
+                    if type(value) == "function" then
+                        -- log(4, "Found Method on %s", rawget(current, "_Type"))
+                        cache = cache or {}
+                        rawset(table, "_method_cache", cache)
+                        cache[key] = value
+                    end
+                    return value
+                end
+
+                local currentAttributes = rawget(current, "_attributes")
+                if currentAttributes and currentAttributes[key] ~= nil then return currentAttributes[key] end
+
+                current = rawget(current, "_Parent")
             end
            
-            -- print("     -- direct instance table check fallback")
-            log(4, "Direct Instance Table Check")
+            -- log(4, "Direct Instance Table Check")
             local result = rawget(table, key)
             if result ~= nil then return result end
 
-            -- print("     -- return nil")
-            log(4, "Return nil")
+            -- log(4, "Return nil")
             return nil
         end,
 
         __newindex = function (table, key, value)
-            -- print( "Magic SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
-            log(1, "SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
+            -- log(1, "SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
+
+            local cache = rawget(table, "_method_cache")
+            if cache and cache[key] then
+                -- log(4, "Invalidated Cache: " .. key)
+                cache[key] = nil
+            end
 
             if LUA_METAMETHODS[key] then
-                -- print("     -- system hook applied: " .. key)
-                log(4, "System Hook Applied: " .. key)
+                -- log(4, "System Hook Applied: " .. key)
                 rawset(table, key, value)
                 return
             end
@@ -163,12 +168,10 @@ local function useStaff(subClass, typeName, parent)
             if type(value) == "function" then
                 local methods = rawget(table, "_methods")
                 if methods then
-                    -- print("     -- method cached on class")
-                    log(4, "Method Cached on Class")
+                    -- log(4, "Method Cached on Class")
                     methods[key] = value
                 else
-                    -- print("     -- method cached on instance in attributes")
-                    log(4, "Method/Function Cached in Instance Attributes")
+                    -- log(4, "Method/Function Cached in Instance Attributes")
                     rawget(table, "_attributes")[key] = value
                 end
                 if key == "__init" then
@@ -177,12 +180,10 @@ local function useStaff(subClass, typeName, parent)
             else
                 local attributes = rawget(table, "_attributes")
                 if (attributes) then
-                    -- print("     -- attribute cached on instance")
-                    log(4, "Attribute Cached on Instance")
+                    -- log(4, "Attribute Cached on Instance")
                     attributes[key] = value
                 else
-                    -- print("     -- fallback stored directly on table")
-                    log(4, "Fallback Stored Directly on Table")
+                    -- log(4, "Fallback Stored Directly on Table")
                     rawset(table, key, value)
                 end
             end
