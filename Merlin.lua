@@ -6,33 +6,31 @@
 ---@field config { debug: boolean, logPrefix: string }
 ---@field _Type string
 ---@field _Parent table
----@field _attributes table
+---@field _Registry table
+---@field _attributes table|Merlin
 ---@field _methods table
 ---@field __init function
-Merlin = {}
-
-Merlin.config = {
-    debug = false,
-    logPrefix = "[Merlin]", -- need a wand icon or something
+---@generic T
+Merlin = {
+    _Registry = {},
+    config = {
+        debug = false,
+        logPrefix = "[Merlin]", -- need a wand icon or something
+    },
 }
 
 local json = require("json")
 
-local function stripMagic(table)
-    if type(table) ~= "table" then return table end
-    
-    -- If it's a Merlin object, get its attributes
-    local attributes = rawget(table, "_attributes")
-    local target = attributes or table
-    
-    local clean = {}
-    for key, value in pairs(target) do
-        clean[key] = stripMagic(value)
-    end
-
-    return clean
+---@param typeName string
+---@param class Merlin
+local function registerClass(typeName, class)
+    Merlin._Registry[typeName] = class
 end
 
+---comment
+---@param level integer
+---@param message string
+---@param ... any
 local function log(level, message, ...)
     ---@diagnostic disable-next-line: unnecessary-if
     if not (Merlin.config and Merlin.config.debug) then return end
@@ -53,6 +51,12 @@ local LUA_METAMETHODS = {
     __eq = true, __lt = true, __le = true, __gc = true
 }
 
+---comment
+---@param class Merlin|table
+---@param bucketName string
+---@param key any
+---@param level? integer
+---@return any
 local function recursiveSearch(class, bucketName, key, level)
     level = level or 5
     -- This needs its own cache
@@ -74,11 +78,30 @@ local function recursiveSearch(class, bucketName, key, level)
     return nil
 end
 
+---comment
+---@param subject Merlin|table
+---@return Merlin|table
+local function deepCopy(subject)
+    if type(subject) ~= table then return subject end
+
+    local result = {}
+    for key, value in pairs(subject) do result[deepCopy(key)] = deepCopy(value) end
+
+    return result
+end
+
+---comment
+---@param subClass table
+---@param typeName string
+---@param parent? Merlin|nil
+---@return Merlin
 local function useStaff(subClass, typeName, parent)
     rawset(subClass, "_Type", typeName)
     rawset(subClass, "_Parent", parent)
     rawset(subClass, "_attributes", {})
     rawset(subClass, "_methods", {})
+
+    registerClass(typeName, subClass)
 
     local methodCache = setmetatable({}, { __mode = "v"} )
     local getterCache = setmetatable({}, { __mode = "k" })
@@ -171,12 +194,34 @@ end
 
 useStaff(Merlin, "Merlin", nil)
 
-function Merlin:derive(typeName)
-    local subClass = {}
-    return useStaff(subClass, typeName, self)
+---@generic T : Merlin
+---@param typeName string
+---@param ...? any
+---@return table|T|Merlin
+function Merlin:derive(typeName, ...)
+    -- lets make sure the parent has been initialized
+    self.__init(self, ...)
+    local subClass = useStaff({}, typeName, self)
+    -- useStaff(subClass, typeName, self)
+
+    local parentAttributes = rawget(self, "_attributes")
+    local childAttributes = rawget(subClass, "_attributes")
+
+    for key, value in pairs(parentAttributes) do
+        -- need to check for tables
+        if type(value ) == "table" then
+            childAttributes[key] = deepCopy(value)
+        else
+            childAttributes[key] = value
+        end
+    end
+
+    return subClass
 end
 
----@return table|Merlin
+---@generic T : Merlin
+---@param ...? any
+---@return table|T
 function Merlin:new(...)
     local instance = {
         _attributes = {},
@@ -190,14 +235,24 @@ function Merlin:new(...)
     return instance
 end
 
-function Merlin:__init()
+function Merlin:__init(...)
     log(1, "__init called on %s", Merlin.config.logPrefix)
 end
 
+---comment
+---@generic T : Merlin
+---@param attribute any
+---@param value any
+---@return T
 function Merlin:setAttribute(attribute, value)
     self._attributes[attribute] = value
+
+    return self
 end
 
+---@param attribute any
+---@param default any
+---@return any
 function Merlin:getAttribute(attribute, default)
     local attributeGetter = Merlin.getAttributeGetter(self, attribute)
     if attributeGetter and type(attributeGetter) == "function" then
@@ -213,6 +268,8 @@ function Merlin:getAttribute(attribute, default)
     return default
 end
 
+---@param typeName string
+---@return boolean
 function Merlin:belongsTo(typeName)
     local current = rawget(self, "_Class") or self
 
@@ -226,6 +283,7 @@ function Merlin:belongsTo(typeName)
     return false
 end
 
+---@return Merlin
 function Merlin:super()
     local cache = rawget(self, "_super_cache")
     
@@ -258,27 +316,117 @@ function Merlin:super()
     return proxy
 end
 
+--- Called whenever an object has been deserialized.
+function Merlin:onRestore()
+    log(1, "onRestore called")
+end
+
+---@return string
 function Merlin:toString()
-    local raw = tostring(self)
-    local id = raw:gsub("table: ", ""):gsub(" ", "")
+    return self:toJson()
+end
+
+---@return string
+function Merlin:toJson()
+    return json.encode(self:flattenTable())
+end
+
+---@param seen any
+---@return table|nil
+function Merlin:flattenTable(seen)
+    seen = seen or {}
+    if seen[self] then return nil end
+    seen[self] = true
 
     local class = rawget(self, "_Class") or self
     local typeName = rawget(class, "_Type") or "Merlin"
 
-    local attributeStrings = {}
-    local attributes = rawget(self, "_attributes")
-    for key, value in pairs(attributes) do
-        table.insert(attributeStrings, string.format("%s=%s", key, tostring(value)))
+    local flattened = {}
+
+    local function merge(target)
+        local attributes = rawget(target, "_attributes") or {}
+
+        for key, value in pairs(attributes) do
+            local isNewData = (flattened[key] == nil) and (type(value) ~= "function")
+
+            if isNewData then
+                local isMerlin = type(value) == "table" and (value.flattenTable or rawget(value, "_Class"))
+
+                flattened[key] = isMerlin and value:flattenTable(seen) or value
+            end
+        end
     end
 
-    local attributesPreview = #attributeStrings > 0 and table.concat(attributeStrings, ", ") or "nil"
-    return string.format("<%s|%s> { %s }", typeName, id, attributesPreview)
+    local current = self
+    while current do
+        merge(current)
+        local nextTarget = rawget(self, "_Class") or rawget(current, "_Parent")
+
+        if nextTarget == current then break end
+        current = nextTarget
+    end
+
+    return {
+        [typeName] = flattened
+    }
 end
 
-function Merlin:toCleanTable()
-    return stripMagic(self)
+--- @generic T : Merlin
+--- @param data table|string    Raw datatable - this usually comes from json.decode or Merlin:fromJson
+--- @param targetClass? `T`      Just used to help the IDE
+--- @return T|table
+function Merlin.fromData(data, targetClass)
+    -- Another place we should throw an error
+    if type(data) ~= "table" then return data end
+
+    ---@type string|any, table|any
+    local typeName, attributes = next(data)
+
+    if type(attributes) == "table" and attributes._Type then typeName = attributes._Type end
+
+    local class = Merlin._Registry[typeName]
+
+    -- Probably an error here too
+    if not class then return data end
+
+    local instance = {
+        _attributes = {},
+        _Class = class
+    }
+    setmetatable(instance, getmetatable(class))
+
+    for key, value in pairs(attributes) do
+        if key ~= "_Type" then
+            instance[key] = (type(value) == "table") and Merlin.fromData(value) or value
+        end
+    end
+
+    if instance.onRestore and type(instance.onRestore) == "function" then instance:onRestore() end
+
+    local result = instance
+
+    return result
 end
 
+--- @generic T : Merlin
+--- @param jsonString string
+--- @param targetClass? `T`      Just used to help the IDE
+--- @return T|table
+function Merlin.fromJson(jsonString, targetClass)
+    --- @type boolean, table|string
+    local success, data = pcall(json.decode, jsonString)
+
+    if not success then
+        log(1, "JSON Decode Error: " .. tostring(data))
+        return nil
+    end
+
+    return Merlin.fromData(data, targetClass)
+end
+
+---@param instance Merlin
+---@param attribute any
+---@return function|nil
 function Merlin.getAttributeGetter(instance, attribute)
     local getterName = "get"  .. Merlin.firstToUpper(attribute)
     local attributeGetter = recursiveSearch(rawget(instance, "_Class") or instance, "_methods", getterName)
