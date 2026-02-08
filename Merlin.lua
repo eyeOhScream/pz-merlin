@@ -4,6 +4,7 @@
 
 ---@class Merlin
 ---@field config { debug: boolean, logPrefix: string }
+---@field jsonProvider table JSON provider that should have an encode and decode function/method
 ---@field _Type string
 ---@field _Parent table
 ---@field _Registry table
@@ -12,7 +13,7 @@
 ---@field __init function
 ---@generic T
 Merlin = {
-    _Registry = {},
+    _Registry = setmetatable({}, { __mode = "v" }),
     config = {
         debug = false,
         logPrefix = "[Merlin]", -- need a wand icon or something
@@ -20,9 +21,12 @@ Merlin = {
 }
 
 local json = require("json")
+Merlin.jsonProvider = json
+
 -- who doesn't love some premature optimizations?
-local rawget, rawset = rawget, rawset
-local type, getmetatable = type, getmetatable
+local rawget, rawset, type = rawget, rawset, type
+local getmetatable, setmetatable = getmetatable, setmetatable
+local pairs, ipairs, next = pairs, ipairs, next
 
 ---@param typeName string
 ---@param class Merlin
@@ -107,6 +111,8 @@ local function useStaff(subClass, typeName, parent)
     -- local getterCache = setmetatable({}, { __mode = "k" })
 
     local staff = {
+        -- __call = function(cls, ...) return cls:new(...) end, -- need to work on this
+        __tostring = function (table) return table:toString() end,
         __index = function(table, key)
             -- log(1, "GETTER: [KEY] '" .. key  .. "' on [TABLE] " .. tostring(table) .. "'")
             
@@ -152,17 +158,16 @@ local function useStaff(subClass, typeName, parent)
 
         __newindex = function (table, key, value)
             -- log(1, "SETTER: [KEY] '" .. key .. "' with [VALUE] '" .. tostring(value) .. "'")
+            if LUA_METAMETHODS[key] then
+                log(4, "System Hook Applied: " .. key)
+                rawset(table, key, value)
+                return
+            end
 
             local cache = rawget(table, "_method_cache")
             if cache and cache[key] then
                 -- log(4, "Invalidated Cache: " .. key)
                 cache[key] = nil
-            end
-
-            if LUA_METAMETHODS[key] then
-                -- log(4, "System Hook Applied: " .. key)
-                rawset(table, key, value)
-                return
             end
 
             if type(value) == "function" then
@@ -269,6 +274,8 @@ function Merlin:getAttribute(attribute, default)
     return default
 end
 
+function Merlin:getAttributes() return rawget(self, "_attributes") or {} end
+
 ---@param typeName string
 ---@return boolean
 function Merlin:belongsTo(typeName)
@@ -282,6 +289,14 @@ function Merlin:belongsTo(typeName)
     end
 
     return false
+end
+
+--- @param classOrName string|table The class name (string) or the Class object.
+--- @return boolean
+function Merlin:isA(classOrName)
+    local targetName = type(classOrName) == "table" and rawget(classOrName, "_Type") or classOrName
+    
+    return self:belongsTo(targetName)
 end
 
 ---@return Merlin
@@ -311,25 +326,65 @@ function Merlin:super()
             return method
         end
     })
-    
+
     log(1, "Super Proxy Cached")
     rawset(self, "_super_cache", proxy)
     return proxy
 end
 
+function Merlin:copy()
+    local class = rawget(self, "_Class") or self
+    local twin = class:new()
+
+    local originalAttributes = rawget(self, "_attributes")
+    local twinAttributes = rawget(twin, "_attributes")
+
+    for key, value in pairs(originalAttributes) do
+        if type(value) == "table" then
+            twinAttributes[key] = deepCopy(value)
+        else
+            twinAttributes[key] = value
+        end
+    end
+
+    if twin.onCopy then
+        twin:onCopy(self)
+    end
+
+    return twin
+end
+
+---comment
+---@param source table|Merlin
+---@param overwrite? boolean
+---@return table|Merlin
+function Merlin:merge(source, overwrite)
+    if overwrite == nil then overwrite = true end
+
+    local isMerlin = type(source) == "table" and rawget(source, "_Class") ~= nil
+    local sourceData = isMerlin and rawget(source, "_attributes") or source
+
+    if type(sourceData) ~= "table" then
+        error(Merlin.config.logPrefix .. "merge() expects a table or Merlin object")
+    end
+
+    local currentAttributes = rawget(self, "_attributes")
+
+    for key, value in pairs(sourceData) do
+        local isData = type(value) ~= "function" and tostring(key):sub(1,1) ~= "_"
+        local canWrite = overwrite or currentAttributes[key] == nil
+
+        if isData and canWrite then
+            currentAttributes[key] = (type(value) == "table") and deepCopy(value) or value
+        end
+    end
+
+    return self
+end
+
 --- Called whenever an object has been deserialized.
 function Merlin:onRestore()
     log(1, "onRestore called")
-end
-
----@return string
-function Merlin:toString()
-    return self:toJson()
-end
-
----@return string
-function Merlin:toJson()
-    return json.encode(self:flattenTable())
 end
 
 ---@param seen any
@@ -409,13 +464,15 @@ function Merlin.fromData(data, targetClass)
     return result
 end
 
+function Merlin.setJsonProvider(provider) Merlin.jsonProvider = provider end
+
 --- @generic T : Merlin
 --- @param jsonString string
 --- @param targetClass? `T`      Just used to help the IDE
 --- @return T|table
 function Merlin.fromJson(jsonString, targetClass)
     --- @type boolean, table|string
-    local success, data = pcall(json.decode, jsonString)
+    local success, data = pcall(Merlin.jsonProvider.decode, jsonString)
 
     if not success then
         log(1, "JSON Decode Error: " .. tostring(data))
@@ -423,6 +480,32 @@ function Merlin.fromJson(jsonString, targetClass)
     end
 
     return Merlin.fromData(data, targetClass)
+end
+
+---@return string
+function Merlin:toString()
+    local class = rawget(self, "_Class") or self
+    local isInstance = rawget(self, "_Class") ~= nil
+    local prefix = isInstance and "" or "Class:"
+    local typeName = rawget(class, "_Type") or "Merlin"
+    
+    -- first we have to strip the metatable
+    local holdThis = getmetatable(self)
+    setmetatable(self, nil)
+    local addr = tostring(self):gsub("table: ", "")
+    setmetatable(self, holdThis)
+    
+    
+    local attributes = rawget(self, "_attributes")
+    local label = attributes and attributes.id or ""
+    if label ~= "" then label = " '" .. tostring(label) .. "'" end
+
+    return string.format("[%s%s] (%s)", prefix .. typeName, label, addr)
+end
+
+---@return string
+function Merlin:toJson()
+    return Merlin.jsonProvider.encode(self:flattenTable())
 end
 
 ---@param instance Merlin
@@ -441,5 +524,7 @@ function Merlin.firstToUpper(value)
 
     return (value:gsub("^%l", string.upper))
 end
+
+if not _G.Merlin then _G.Merlin = Merlin end
 
 return Merlin
