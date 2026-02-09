@@ -2,6 +2,14 @@
 -- If you discover this don't judge me too harshly. I'm just testing out some of Lua's
 -- features to understand how much "fun" stuff I can do to emulate OOP principles.
 
+
+-- who doesn't love some premature optimizations?
+local rawget, rawset, type = rawget, rawset, type
+local getmetatable, setmetatable = getmetatable, setmetatable
+local pairs, ipairs, next = pairs, ipairs, next
+
+local json = require("json")
+
 ---@class Merlin
 ---@field config { debug: boolean, logPrefix: string }
 ---@field jsonProvider table JSON provider that should have an encode and decode function/method
@@ -10,23 +18,19 @@
 ---@field _Registry table
 ---@field _attributes table|Merlin
 ---@field _methods table
+---@field _getterCache table
 ---@field __init function
 ---@generic T
 Merlin = {
     _Registry = setmetatable({}, { __mode = "v" }),
+    _getterCache = {},
     config = {
         debug = false,
         logPrefix = "[Merlin]", -- need a wand icon or something
     },
 }
 
-local json = require("json")
 Merlin.jsonProvider = json
-
--- who doesn't love some premature optimizations?
-local rawget, rawset, type = rawget, rawset, type
-local getmetatable, setmetatable = getmetatable, setmetatable
-local pairs, ipairs, next = pairs, ipairs, next
 
 ---@param typeName string
 ---@param class Merlin
@@ -48,6 +52,15 @@ local function log(level, message, ...)
         print(string.format("%s%s%s", prefix, indent, string.format(message, ...)))
     end, ...)
     
+end
+
+local function firstToUpper(value)
+    if type(value) ~= "string" then
+        log(1, "firstToUpper expects a string but was given: %s", tostring(value))
+        return nil
+    end
+
+    return (value:sub(1,1):upper() .. value:sub(2))
 end
 
 local LUA_METAMETHODS = {
@@ -107,9 +120,6 @@ local function useStaff(subClass, typeName, parent)
 
     registerClass(typeName, subClass)
 
-    -- local methodCache = setmetatable({}, { __mode = "v"} )
-    -- local getterCache = setmetatable({}, { __mode = "k" })
-
     local staff = {
         -- __call = function(cls, ...) return cls:new(...) end, -- need to work on this
         __tostring = function (table) return table:toString() end,
@@ -162,6 +172,21 @@ local function useStaff(subClass, typeName, parent)
                 log(4, "System Hook Applied: " .. key)
                 rawset(table, key, value)
                 return
+            end
+
+            local attributes = rawget(table, "_attributes")
+            if attributes and attributes[key] == value then return end
+
+            local wasDirty = rawget(table, "_isDirty")
+
+            rawset(table, "_isDirty", true)
+            rawset(table, "_json_cache", nil)
+
+            if not wasDirty then
+                local onDirty = table.onDirty
+                if type(onDirty) == "function" then
+                    onDirty(table, key, value)
+                end
             end
 
             local cache = rawget(table, "_method_cache")
@@ -256,6 +281,8 @@ function Merlin:setAttribute(attribute, value)
     return self
 end
 
+function Merlin:get(attribute, default) return self:getAttribute(attribute, default) end
+
 ---@param attribute any
 ---@param default any
 ---@return any
@@ -275,6 +302,23 @@ function Merlin:getAttribute(attribute, default)
 end
 
 function Merlin:getAttributes() return rawget(self, "_attributes") or {} end
+
+---@param instance Merlin
+---@param attribute any
+---@return function|nil
+function Merlin.getAttributeGetter(instance, attribute)
+    local getterName = Merlin._getterCache[attribute]
+
+    if not getterName then 
+        getterName = "get"  .. firstToUpper(attribute)
+        Merlin._getterCache[attribute] = getterName
+    end
+    
+    local attributeGetter = recursiveSearch(rawget(instance, "_Class") or instance, "_methods", getterName)
+    if type( attributeGetter) == "function" then return attributeGetter end
+
+    return nil
+end
 
 ---@param typeName string
 ---@return boolean
@@ -354,6 +398,67 @@ function Merlin:copy()
     return twin
 end
 
+
+--- Called whenever an object has been deserialized.
+function Merlin:onRestore()
+    log(1, "onRestore called")
+end
+
+local function deepCopyDataOnly(obj, seen)
+    if type(obj) ~= "table" then return obj end
+    
+    seen = seen or {}
+    if seen[obj] then return nil end
+    seen[obj] = true
+
+    local res = {}
+    for k, v in pairs(obj) do
+        -- Skip logic and internal keys
+        if type(v) ~= "function" and type(k) ~= "function" and tostring(k):sub(1,1) ~= "_" then
+            res[k] = deepCopyDataOnly(v, seen)
+        end
+    end
+
+    return res
+end
+
+function Merlin:flattenTable(seen)
+    seen = seen or {}
+    if seen[self] then return nil end
+    seen[self] = true
+
+    local class = rawget(self, "_Class") or self
+    local typeName = rawget(class, "_Type") or "Merlin"
+    local flattened = {}
+
+    local function merge(target)
+        local attributes = rawget(target, "_attributes") or {}
+        for key, value in pairs(attributes) do
+            -- Guard: Skip if already handled or if it's a function
+            if flattened[key] == nil and type(value) ~= "function" then
+                
+                -- 1. Check if it's a Merlin object first
+                local isMerlin = type(value) == "table" and rawget(value, "_Class") ~= nil
+                
+                if isMerlin then
+                    -- Direct recursion for Merlin objects
+                    flattened[key] = value:flattenTable(seen)
+                else
+                    -- 2. Standard Data/Tables
+                    -- Pass 'seen' to handle circular refs in plain tables
+                    flattened[key] = deepCopyDataOnly(value, seen)
+                end
+            end
+        end
+    end
+
+    merge(self)  -- Instance overrides
+    merge(class) -- Class defaults (which include parent defaults via derive)
+
+    flattened._Type = typeName
+    return { [typeName] = flattened }
+end
+
 ---comment
 ---@param source table|Merlin
 ---@param overwrite? boolean
@@ -365,7 +470,9 @@ function Merlin:merge(source, overwrite)
     local sourceData = isMerlin and rawget(source, "_attributes") or source
 
     if type(sourceData) ~= "table" then
-        error(Merlin.config.logPrefix .. "merge() expects a table or Merlin object")
+        log(1, "ERROR: merge() expects a table or Merlin object.")
+        -- error(Merlin.config.logPrefix .. "merge() expects a table or Merlin object")
+        return self
     end
 
     local currentAttributes = rawget(self, "_attributes")
@@ -375,57 +482,14 @@ function Merlin:merge(source, overwrite)
         local canWrite = overwrite or currentAttributes[key] == nil
 
         if isData and canWrite then
-            currentAttributes[key] = (type(value) == "table") and deepCopy(value) or value
+            local isTable = type(value) == "table"
+            currentAttributes[key] = isTable and deepCopyDataOnly(value) or value
         end
     end
 
     return self
 end
 
---- Called whenever an object has been deserialized.
-function Merlin:onRestore()
-    log(1, "onRestore called")
-end
-
----@param seen any
----@return table|nil
-function Merlin:flattenTable(seen)
-    seen = seen or {}
-    if seen[self] then return nil end
-    seen[self] = true
-
-    local class = rawget(self, "_Class") or self
-    local typeName = rawget(class, "_Type") or "Merlin"
-
-    local flattened = {}
-
-    local function merge(target)
-        local attributes = rawget(target, "_attributes") or {}
-
-        for key, value in pairs(attributes) do
-            local isNewData = (flattened[key] == nil) and (type(value) ~= "function")
-
-            if isNewData then
-                local isMerlin = type(value) == "table" and (value.flattenTable or rawget(value, "_Class"))
-
-                flattened[key] = isMerlin and value:flattenTable(seen) or value
-            end
-        end
-    end
-
-    local current = self
-    while current do
-        merge(current)
-        local nextTarget = rawget(self, "_Class") or rawget(current, "_Parent")
-
-        if nextTarget == current then break end
-        current = nextTarget
-    end
-
-    return {
-        [typeName] = flattened
-    }
-end
 
 --- @generic T : Merlin
 --- @param data table|string    Raw datatable - this usually comes from json.decode or Merlin:fromJson
@@ -456,6 +520,9 @@ function Merlin.fromData(data, targetClass)
             instance[key] = (type(value) == "table") and Merlin.fromData(value) or value
         end
     end
+
+    -- Let's make sure the restored object is set to clean being that it likely came from a data store
+    rawset(instance, "_isDirty", false)
 
     if instance.onRestore and type(instance.onRestore) == "function" then instance:onRestore() end
 
@@ -505,24 +572,41 @@ end
 
 ---@return string
 function Merlin:toJson()
-    return Merlin.jsonProvider.encode(self:flattenTable())
+    local cachedJson = rawget(self, "_json_cache")
+
+    if not self:isDirty() and cachedJson ~= nil then return cachedJson end
+
+    local data = self:flattenTable()
+    local jsonString = Merlin.jsonProvider.encode(data)
+
+    rawset(self, "_json_cache", jsonString)
+    rawset(self, "_isDirty", false)
+
+    return jsonString
 end
 
----@param instance Merlin
----@param attribute any
----@return function|nil
-function Merlin.getAttributeGetter(instance, attribute)
-    local getterName = "get"  .. Merlin.firstToUpper(attribute)
-    local attributeGetter = recursiveSearch(rawget(instance, "_Class") or instance, "_methods", getterName)
-
-    return attributeGetter
+function Merlin:onDirty(key, value)
+    log(1, "onDirty fired on %s for %s = %s", tostring(self), tostring(key) , tostring(value))
 end
 
-function Merlin.firstToUpper(value)
-    -- @TODO: throw an error here because we care about type safety
-    if type(value) ~= "string" then print("should this be an error?") return value end
+function Merlin:isDirty() return rawget(self, "_isDirty") == true end
 
-    return (value:gsub("^%l", string.upper))
+function Merlin:clean() rawset(self, "_isDirty", false) end
+
+function Merlin:markDirty(key, value)
+    key = key or "manual"
+    local wasDirty = rawget(self, "_isDirty")
+
+    if not wasDirty and type(self.onDirty) == "function" then
+        self:onDirty(key or "manual", value)
+    end
+
+    rawset(self, "_isDirty", true)
+    rawset(self, "_json_cache", nil)
+end
+
+function Merlin.isMerlin(value)
+    return type(value) == "table" and rawget(value, "_Class") ~= nil
 end
 
 if not _G.Merlin then _G.Merlin = Merlin end
