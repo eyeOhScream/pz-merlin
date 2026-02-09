@@ -325,8 +325,6 @@ function Merlin.getAttributeGetter(instance, attribute)
     return nil
 end
 
-
-
 ---@return Merlin
 function Merlin:super()
     local cache = rawget(self, "_super_cache")
@@ -384,8 +382,8 @@ end
 
 
 --- Called whenever an object has been deserialized.
-function Merlin:onRestore()
-    log(1, "onRestore called")
+function Merlin:onCreated()
+    log(1, "onCreated called")
 end
 
 local function deepCopyDataOnly(object, seen, depth)
@@ -543,7 +541,7 @@ function Merlin.fromData(data, targetClass, depth)
 
     -- Let's make sure the restored object is set to clean being that it likely came from a data store
     rawset(instance, "_isDirty", false)
-    if instance.onRestore and type(instance.onRestore) == "function" then instance:onRestore() end
+    if instance.onCreated and type(instance.onCreated) == "function" then instance:onCreated() end
 
     return instance
 end
