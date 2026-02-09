@@ -393,7 +393,9 @@ local function deepCopyDataOnly(object, seen, depth)
     seen = seen or {}
     depth = depth or 0
 
-    if depth > Merlin.config.maxDepth then return "[MAX_DEPTH_REACHED_" .. tostring(Merlin.config.maxDepth) .. "]" end
+    if depth > (Merlin.config.maxDepth or 20) then
+        return "[MAX_DEPTH_REACHED]"
+    end
 
     if Merlin.isMerlin(object) then return object:flattenTable(seen, depth) end
 
@@ -415,7 +417,9 @@ function Merlin:flattenTable(seen, depth)
     seen = seen or {}
     depth = depth or 0
 
-    if depth > Merlin.config.maxDepth then return "[MAX_DEPTH_REACHED_" .. tostring(Merlin.config.maxDepth) .. "]" end
+    if depth > (Merlin.config.maxDepth or 20) then
+        return "[MAX_DEPTH_REACHED]"
+    end
 
     if seen[self] then return nil end
     seen[self] = true
@@ -504,7 +508,7 @@ function Merlin.fromData(data, targetClass, depth)
     if type(data) ~= "table" then return data end
 
     depth = depth or 0
-    if depth > 20 then
+    if depth > (Merlin.config.maxDepth or 20) then
         log(1, "WARN: fromData reached max depth (20). Recursion has stopped.")
         return data
     end
