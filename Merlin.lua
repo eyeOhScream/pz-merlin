@@ -7,6 +7,7 @@
 local rawget, rawset, type = rawget, rawset, type
 local getmetatable, setmetatable = getmetatable, setmetatable
 local pairs, ipairs, next = pairs, ipairs, next
+local _insert = table.insert
 
 local json = require("json")
 
@@ -15,17 +16,19 @@ local json = require("json")
 ---@field config { debug: boolean, logPrefix: string, maxDepth: integer }
 ---@field jsonProvider table JSON provider that should have an encode and decode function/method
 ---@field _Type string
----@field _Parent table
----@field _Registry table
+---@field _Parent table|Merlin
+---@field _Class table|Merlin
+---@field _Registry table<string, Merlin>
 ---@field _attributes table|Merlin
 ---@field _methods table
 ---@field _getterCache table
+---@field _pathCache table
 ---@field __init function
----@generic T
 Merlin = {
     VERSION = "0.0.1",
     _Registry = setmetatable({}, { __mode = "v" }),
     _getterCache = {},
+    _pathCache = setmetatable({}, { __mode = "v" }),
     config = {
         debug = false,
         logPrefix = "[Merlin]", -- need a wand icon or something
@@ -233,7 +236,7 @@ useStaff(Merlin, "Merlin", nil)
 ---@generic T : Merlin
 ---@param typeName string
 ---@param ...? any
----@return table|T|Merlin
+---@return table|T|Merlin|any
 function Merlin:derive(typeName, ...)
     -- lets make sure the parent has been initialized
     self.__init(self, ...)
@@ -275,18 +278,58 @@ function Merlin:__init(...)
     log(1, "__init called on %s", Merlin.config.logPrefix)
 end
 
----comment
----@generic T : Merlin
----@param attribute any
----@param value any
----@return T
+function Merlin._getPathParts(path)
+    local cache = Merlin._pathCache
+    if cache[path] then return cache[path] end
+
+    local parts = {}
+    for part in path:gmatch("[^.]+") do
+        _insert(parts, part)
+    end
+
+    cache[path] = parts
+
+    return parts
+end
+
+--- This is the direct way to set values without any dot notation.
+--- @generic T : Merlin
+--- @param attribute any
+--- @param value any
+--- @return T
 function Merlin:setAttribute(attribute, value)
     self._attributes[attribute] = value
 
     return self
 end
 
-function Merlin:get(attribute, default) return self:getAttribute(attribute, default) end
+function Merlin:set(attribute, value)
+    if type(attribute) ~= "string" or not attribute:find(".", 1, true) then
+        return self:setAttribute(attribute, value)
+    end
+
+    local parts = Merlin._getPathParts(attribute)
+    local current = self._attributes
+
+    for i = 1, #parts - 1 do
+        local part = parts[i]
+        
+        -- If the path doesn't exist, create the table
+        if current[part] == nil then current[part] = {}
+        elseif type(current[part]) ~= "table" then
+            -- Safety: If we hit a non-table value where we need a table,
+            -- we stop to avoid destroying existing data.
+            log(1, "Cannot set nested key: %s is not a table", tostring(part))
+            return self
+        end
+        
+        current = current[part]
+    end
+
+    current[parts[#parts]] = value
+
+    return self
+end
 
 ---@param attribute any
 ---@param default any
@@ -300,10 +343,38 @@ function Merlin:getAttribute(attribute, default)
     local attributes = rawget(self, "_attributes")
     if attributes and attributes[attribute] then return attributes[attribute] end
 
+    -- @TODO - This may not work if we are wrapping a native Java object,
+    -- so let's put a pin in this in case I find a way to prove
+    -- it's problem.
     attribute = rawget(self, attribute)
     if attribute ~= nil then return attribute end
 
     return default
+end
+
+function Merlin:get(attribute, default)
+    if type(attribute) ~= "string" or not attribute:find(".", 1, true) then
+        return self:getAttribute(attribute, default)
+    end
+
+    local parts = Merlin._getPathParts(attribute)
+
+    ---@type Merlin|table|any
+    local current = self
+    for i = 1, #parts do
+        if type(current) ~= "table" then return default end
+
+        local part = parts[i]
+        if current.getAttribute then
+            current = current:getAttribute(part)
+        else
+            current = current[part]
+        end
+
+        if current == nil then return default end
+    end
+
+    return current
 end
 
 function Merlin:getAttributes() return rawget(self, "_attributes") or {} end
@@ -360,12 +431,13 @@ end
 
 function Merlin:copy()
     local class = rawget(self, "_Class") or self
-    local twin = class:new()
+    local twin = setmetatable({}, getmetatable(self))
 
     local originalAttributes = rawget(self, "_attributes")
-    local twinAttributes = rawget(twin, "_attributes")
+    local twinAttributes = {}
 
     for key, value in pairs(originalAttributes) do
+
         if type(value) == "table" then
             twinAttributes[key] = deepCopy(value)
         else
@@ -373,13 +445,14 @@ function Merlin:copy()
         end
     end
 
+    rawset(twin, "_attributes", twinAttributes)
+
     if twin.onCopy then
         twin:onCopy(self)
     end
 
     return twin
 end
-
 
 --- Called whenever an object has been deserialized.
 function Merlin:onCreated()
@@ -403,19 +476,35 @@ local function deepCopyDataOnly(object, seen, depth)
     local res = {}
     for key, value in pairs(object) do
         -- Skip logic and internal keys
-        if type(value) ~= "function" and type(key) ~= "function" and tostring(key):sub(1,1) ~= "_" then
+        local isInternal = type(key) == "string" and string.byte(key, 1) == 95
+        -- local isInternal = type(key) == "string" and string.find(key, "^_")
+
+        -- if type(value) ~= "function" and type(key) ~= "function" and tostring(key):sub(1,1) ~= "_" then
+        if type(value) ~= "function" and type(key) ~= "function" and not isInternal then
             res[key] = deepCopyDataOnly(value, seen)
         end
     end
 
     return res
 end
+local function merge(target, flattened, seen, depth)
+    local attributes = rawget(target, "_attributes") or {}
+    for key, value in pairs(attributes) do
+        -- Skip internal keys, _Type, and functions
+        local isInternal = type(key) == "string" and string.byte(key, 1) == 95 and key ~= "_Type"
+
+        if flattened[key] == nil and type(value) ~= "function" and not isInternal then
+            flattened[key] = deepCopyDataOnly(value, seen, depth + 1)
+        end
+    end
+end
 
 function Merlin:flattenTable(seen, depth)
     seen = seen or {}
     depth = depth or 0
+    local maxDepth = Merlin.config.maxDepth
 
-    if depth > (Merlin.config.maxDepth or 20) then
+    if depth > (maxDepth or 20) then
         return "[MAX_DEPTH_REACHED]"
     end
 
@@ -426,24 +515,8 @@ function Merlin:flattenTable(seen, depth)
     local typeName = rawget(class, "_Type") or "Merlin"
     local flattened = {}
 
-    local function merge(target)
-        local attributes = rawget(target, "_attributes") or {}
-        for key, value in pairs(attributes) do
-            -- Guard: Skip if already handled or if it's a function
-            if flattened[key] == nil and type(value) ~= "function" then
-                local isInternal = type(key) == "string" and key:sub(1,1) == "_" and key ~= "_Type"
-
-                if not isInternal then
-                    flattened[key] = deepCopyDataOnly(value, seen, depth + 1)
-                end
-
-                -- flattened[key] = deepCopyDataOnly(value, seen)
-            end
-        end
-    end
-
-    merge(self)  -- Instance overrides
-    merge(class) -- Class defaults (which include parent defaults via derive)
+    merge(self, flattened, seen, depth)  -- Instance overrides
+    merge(class, flattened, seen, depth) -- Class defaults (which include parent defaults via derive)
 
     flattened._Type = typeName
     flattened._merlinVersion = Merlin.VERSION
@@ -686,6 +759,10 @@ function Merlin.fromList(data, class)
     end
 
     return list
+end
+
+function Merlin:collect(items)
+    return require("MerlinCollection"):new(items)
 end
 
 if not _G.Merlin then _G.Merlin = Merlin end
