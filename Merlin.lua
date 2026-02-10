@@ -761,6 +761,23 @@ function Merlin.fromList(data, class)
     return list
 end
 
+function Merlin:onDestroy()
+    log(1, "onDestroy called")
+end
+
+function Merlin:destroy()
+    self:onDestroy()
+    rawset(self, "_attributes", nil)
+    rawset(self, "_isDirty", nil)
+    rawset(self, "_json_cache", nil)
+    rawset(self, "_methods", nil)
+    setmetatable(self, nil)
+
+    return nil
+end
+
+function Merlin:dispose() return self:destroy() end
+
 function Merlin:collect(items)
     return require("MerlinCollection"):new(items)
 end
