@@ -1,6 +1,11 @@
 -- This file doesn't do anything yet - it's only here as a placeholder for me to tinker.
 -- If you discover this don't judge me too harshly. I'm just testing out some of Lua's
 -- features to understand how much "fun" stuff I can do to emulate OOP principles.
+--
+---@TODO List
+-- Need to see if PZ handles mod dependencies and if it doesn't can we implement
+-- a strategy within our library to make it work seemlessly - probably not
+-- but it's a worth-while problem to attempt to solve for a framwework.
 
 
 -- who doesn't love some premature optimizations?
@@ -238,7 +243,8 @@ useStaff(Merlin, "Merlin", nil)
 ---@param ...? any
 ---@return table|T|Merlin|any
 function Merlin:derive(typeName, ...)
-    -- lets make sure the parent has been initialized
+    ---@TODO WE ARE WORKING ON THE NAMESPACING STUFF IF YOU REALLY WANT TO CREATE A DAMNED FRAMEWORK
+    -- lets make sure the parent has been initialized - not sure if i care about this or not
     self.__init(self, ...)
     local subClass = useStaff({}, typeName, self)
     -- useStaff(subClass, typeName, self)
@@ -343,7 +349,7 @@ function Merlin:getAttribute(attribute, default)
     local attributes = rawget(self, "_attributes")
     if attributes and attributes[attribute] then return attributes[attribute] end
 
-    -- @TODO - This may not work if we are wrapping a native Java object,
+    ---@TODO - This may not work if we are wrapping a native Java object,
     -- so let's put a pin in this in case I find a way to prove
     -- it's problem.
     attribute = rawget(self, attribute)
@@ -761,9 +767,7 @@ function Merlin.fromList(data, class)
     return list
 end
 
-function Merlin:onDestroy()
-    log(1, "onDestroy called")
-end
+function Merlin:onDestroy() log(1, "onDestroy called") end
 
 function Merlin:destroy()
     self:onDestroy()
@@ -778,9 +782,7 @@ end
 
 function Merlin:dispose() return self:destroy() end
 
-function Merlin:collect(items)
-    return require("MerlinCollection"):new(items)
-end
+function Merlin:collect(items) return require("MerlinCollection"):new(items) end
 
 if not _G.Merlin then _G.Merlin = Merlin end
 
