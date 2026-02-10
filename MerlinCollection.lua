@@ -26,15 +26,19 @@ function MerlinCollection:all() return self:get(config.storage, {}) end
 function MerlinCollection:count() return #self:all() end
 
 function MerlinCollection:destroy(recursive)
-    if not recursive then self.destroy(self) end
-
     local items = self:all()
-    for i = 1, #items do
-        local item = items[i]
-        if type(item) == "table" and item.destroy then
-            item:destroy()
+    if not items then return nil end
+
+    if recursive then
+        for i = 1, #items do
+            local item = items[i]
+            if type(item) == "table" and item.destroy then
+                item:destroy()
+            end
         end
     end
+
+    self:set(config.storage, nil)
 
     return Merlin.destroy(self)
 end
@@ -53,6 +57,7 @@ end
 ---@param callback function
 ---@return MerlinCollection|Merlin|table
 function MerlinCollection:filter(callback)
+    -- local collection = self._Class:new
     local items = self:get(config.storage, {})
     local filtered = {}
 
@@ -84,10 +89,6 @@ function MerlinCollection:firstWhere(key, value)
     return nil
 end
 
-function MerlinCollection:isEmpty() return #self:all() == 0 end
-
-function MerlinCollection:isNotEmpty() return not self:isEmpty() end
-
 function MerlinCollection:groupBy(key)
     local items = self:all()
     local groups = {}
@@ -107,7 +108,7 @@ function MerlinCollection:groupBy(key)
         groupKey = tostring(groupKey or "Unknown")
 
         if not groups[groupKey] then groups[groupKey] = {} end
-        table.insert(groups[groupKey], item)
+        _insert(groups[groupKey], item)
     end
 
     for gKey, gItems in pairs(groups) do
@@ -117,9 +118,13 @@ function MerlinCollection:groupBy(key)
     return self._Class:new(groups)
 end
 
+function MerlinCollection:isEmpty() return #self:all() == 0 end
+
+function MerlinCollection:isNotEmpty() return not self:isEmpty() end
+
 function MerlinCollection:last()
     local items = self:all()
-    return self:all()[#items]
+    return items[#items]
 end
 
 function MerlinCollection:pluck(key)
@@ -167,7 +172,7 @@ function MerlinCollection:toArray() return self:all() end
 
 function MerlinCollection:when(condition, callback)
     if condition then
-        return callback(self)
+        return callback(self) or self
     end
 
     return self

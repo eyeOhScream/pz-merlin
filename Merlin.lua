@@ -243,8 +243,9 @@ useStaff(Merlin, "Merlin", nil)
 ---@param ...? any
 ---@return table|T|Merlin|any
 function Merlin:derive(typeName, ...)
-    ---@TODO WE ARE WORKING ON THE NAMESPACING STUFF IF YOU REALLY WANT TO CREATE A DAMNED FRAMEWORK
-    -- lets make sure the parent has been initialized - not sure if i care about this or not
+    ---@TODO WE ARE WORKING ON THE NAMESPACING STUFF IF WE REALLY WANT TO CREATE A DAMNED FRAMEWORK
+    -- lets make sure the parent has been initialized - not sure if i care about this or not..
+    -- i think the init stuff should be called at :new(), but i should write some tests
     self.__init(self, ...)
     local subClass = useStaff({}, typeName, self)
     -- useStaff(subClass, typeName, self)
@@ -309,6 +310,10 @@ function Merlin:setAttribute(attribute, value)
     return self
 end
 
+-- This allows for dot-based path based attribute setting. Example: player.health.value
+---@param attribute any
+---@param value any
+---@return Merlin|table|any
 function Merlin:set(attribute, value)
     if type(attribute) ~= "string" or not attribute:find(".", 1, true) then
         return self:setAttribute(attribute, value)
@@ -770,11 +775,21 @@ end
 function Merlin:onDestroy() log(1, "onDestroy called") end
 
 function Merlin:destroy()
-    self:onDestroy()
+    if rawget(self, "_attributes") == nil then return nil end
+    
+    local destroyHook = self.onDestroy
+    if destroyHook and type(destroyHook) == "function" then
+        destroyHook(self)
+    end
+
     rawset(self, "_attributes", nil)
     rawset(self, "_isDirty", nil)
     rawset(self, "_json_cache", nil)
-    rawset(self, "_methods", nil)
+    rawset(self, "_method_cache", nil)
+
+    rawset(self, "_Class", nil)
+    rawset(self, "_Parent", nil)
+
     setmetatable(self, nil)
 
     return nil
