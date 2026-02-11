@@ -94,13 +94,25 @@ function MerlinCollection:first()
     return items[1]
 end
 
-function MerlinCollection:firstWhere(key, value)
-    local items = self:get(config.storage, {})
+function MerlinCollection:firstWhere(key, operatorOrValue, value)
+    if value == nil then
+        value = operatorOrValue
+        operatorOrValue = "="
+    end
 
+    local operatorFunc = OPERATORS[operatorOrValue]
+    ---@TODO another place we need to log
+    if not operatorFunc then return nil end
+
+    local items = self:all()
     for i = 1, #items do
         local item = items[i]
         local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        if itemValue == value then return item end
+
+        local success, result = pcall(operatorFunc, itemValue, value)
+        if success and result then
+            return item
+        end
     end
 
     return nil
