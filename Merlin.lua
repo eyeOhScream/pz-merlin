@@ -296,10 +296,6 @@ function Merlin:bridge(pzClass, typeName)
     return MerlinStaff
 end
 
-function Merlin:raw()
-    return self._attributes
-end
-
 function Merlin:__init(...)
     log(1, "__init called on %s", Merlin.config.logPrefix)
 end
