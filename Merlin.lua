@@ -62,8 +62,9 @@ local function log(level, message, ...)
     pcall(function (...)
         print(string.format("%s%s%s", prefix, indent, string.format(message, ...)))
     end, ...)
-    
 end
+
+Merlin.__logger = log
 
 local function firstToUpper(value)
     if type(value) ~= "string" then
@@ -268,9 +269,10 @@ end
 ---@generic T : Merlin
 ---@param ...? any
 ---@return table|T
-function Merlin:new(...)
+function Merlin:new(attributes, ...)
+    if type(attributes) ~= "table" then attributes = {} end
     local instance = {
-        _attributes = {},
+        _attributes = attributes,
         _Class = self,
     }
     setmetatable(instance, getmetatable(self))
@@ -279,6 +281,23 @@ function Merlin:new(...)
     init(instance, ...)
 
     return instance
+end
+
+function Merlin:bridge(pzClass, typeName)
+    -- 1. Properly derive the Staff (Registers it in Merlin._Registry)
+    local MerlinStaff = self:derive(typeName)
+    local pzClassNew = pzClass.new
+    pzClass.new = function(cls, ...)
+        local pzInstance = pzClassNew(cls, ...)
+        local merlinInstance = MerlinStaff:new(pzInstance)
+
+        return merlinInstance
+    end
+    return MerlinStaff
+end
+
+function Merlin:raw()
+    return self._attributes
 end
 
 function Merlin:__init(...)

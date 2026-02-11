@@ -1,11 +1,9 @@
 local Merlin = require("Merlin")
 
 ---@class MerlinCollection : Merlin
-local MerlinCollection = Merlin:derive("Collection")
+local MerlinCollection = Merlin:derive("MerlinCollection")
 
--- local config = {
---     storage = "__merlinCollection"
--- }
+_G.MERLINCOLLECTION_TEST_MODE = _G.MERLINCOLLECTION_TEST_MODE or nil
 
 local table = table
 local _insert = table.insert
@@ -34,8 +32,16 @@ local function _matches(item, key, operatorFunc, value)
     return success and result
 end
 
+local function _log(level, message, ...)
+    return Merlin.__logger(level, message, ...)
+end
 
----comment 
+local function _typeError(method, parameter, expectedType, value, receivedTypeOverride)
+    local receivedType = receivedTypeOverride or type(value)
+    local message = string.format("%s expects %s to be %s but received `%s`.", method, parameter, expectedType, receivedType)
+    return _log(1, message)
+end
+
 ---@param items any
 ---@return MerlinCollection|Merlin|table
 function MerlinCollection:new(items)
@@ -50,20 +56,23 @@ function MerlinCollection:new(items)
     return collection
 end
 
-function MerlinCollection:add(item)
-    return self:push(item)
-end
+function MerlinCollection:add(item) return self:push(item) end
 
-function MerlinCollection:all()
-    return rawget(self, "_attributes")
-end
+function MerlinCollection:all() return rawget(self, "_attributes") end
 
 function MerlinCollection:cast(className)
     local Class = Merlin._Registry[className]
-    if not Class then return self end
+    
+    if not Class then
+        _typeError("MerlinCollection:cast()", "className", "a class name of a class that has derived from Merlin", nil, className)
+        return self
+    end
+
 
     return self:map(function (item)
+        -- Already a Merlin object so move on
         if type(item) == "table" and item._isMerlin then return item end
+
         return Class:new(item)
     end)
 end
@@ -81,8 +90,6 @@ function MerlinCollection:destroy(recursive)
         end
     end
 
-    -- self:set(config.storage, nil)
-
     return Merlin.destroy(self)
 end
 
@@ -96,11 +103,9 @@ function MerlinCollection:each(callback)
     return self
 end
 
----comment
 ---@param callback function
 ---@return MerlinCollection
 function MerlinCollection:filter(callback)
-    -- local collection = self._Class:new
     local items = self:all()
     local filtered = {}
 
@@ -111,10 +116,7 @@ function MerlinCollection:filter(callback)
     return self._Class:new(filtered)
 end
 
-function MerlinCollection:first()
-    local items = self:all()
-    return items[1]
-end
+function MerlinCollection:first() return self:all()[1] end
 
 function MerlinCollection:firstWhere(key, operatorOrValue, value)
     if value == nil then
@@ -190,10 +192,15 @@ end
 function MerlinCollection:map(callback, keepNilValues)
     if keepNilValues == nil then keepNilValues = false end
 
-    ---@TODO need a log entry here for trouble-shooting
-    if type(keepNilValues) ~= "boolean" then return self end
-    ---@TODO need a log entry here for trouble-shooting
-    if type(callback) ~= "function" then return self end
+    if type(keepNilValues) ~= "boolean" then
+        _typeError("MerlinCollection:map()", "keepNilValues", "boolean or nil", keepNilValues)
+        return self
+    end
+
+    if type(callback) ~= "function" then
+        _typeError("MerlinCollection:map()", "callback", "function", callback)
+        return self
+    end
 
     local items = self:all()
     local mapped = {}
@@ -219,6 +226,7 @@ function MerlinCollection:map(callback, keepNilValues)
 end
 
 function MerlinCollection:pipe(callback)
+    ---@TODO add log entry here
     if type(callback) == "function" then return callback(self) end
 
     return self
@@ -292,6 +300,7 @@ end
 function MerlinCollection:sortByDescending(key) return self:sortBy(key, true) end
 
 function MerlinCollection:tap(callback)
+    ---@TODO make this a type check and add a log entry
     if type(callback) == "function" then
         callback(self)
         return self
@@ -303,12 +312,14 @@ end
 function MerlinCollection:toArray() return self:all() end
 
 function MerlinCollection:unless(condition, callback)
+    ---@TODO type check and log entry
     if type(callback) == "function" then return self:when(not condition, callback) end
 
     return self
 end
 
 function MerlinCollection:when(condition, callback)
+    ---@TODO type check and log entry
     if condition and type(callback) == "function" then return callback(self) or self end
     return self
 end
@@ -353,6 +364,13 @@ function MerlinCollection:whereIn(key, values)
         local itemValue = _resolve(item, key)
         return lookup[itemValue] ~= nil
     end)
+end
+
+if _G.MERLINCOLLECTION_TEST_MODE then
+    MerlinCollection._test = {
+        _typeError = _typeError,
+        _log = _log
+    }
 end
 
 return MerlinCollection
