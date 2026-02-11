@@ -10,6 +10,20 @@ local config = {
 local table = table
 local _insert = table.insert
 
+-- Query Operators
+local OPERATORS = {
+    ["="]   = function(a, b) return a == b end,
+    ["=="]  = function(a, b) return a == b end,
+    ["!="]  = function(a, b) return a ~= b end,
+    ["<>"]  = function(a, b) return a ~= b end,
+    [">"]   = function(a, b) return a > b end,
+    ["<"]   = function(a, b) return a < b end,
+    [">="]  = function(a, b) return a >= b end,
+    ["<="]  = function(a, b) return a <= b end,
+    -- This might be fun..
+    ["like"] = function(a, b) return tostring(a):find(tostring(b), 1, true) ~= nil end
+}
+
 ---comment 
 ---@param items any
 ---@return MerlinCollection|Merlin|table
@@ -21,6 +35,16 @@ function MerlinCollection:new(items)
 end
 
 function MerlinCollection:all() return self:get(config.storage, {}) end
+
+function MerlinCollection:cast(className)
+    local Class = Merlin._Registry[className]
+    if not Class then return self end
+
+    return self:map(function (item)
+        if type(item) == "table" and item._isMerlin then return item end
+        return Class:new(item)
+    end)
+end
 
 function MerlinCollection:count() return #self:all() end
 
@@ -120,6 +144,19 @@ function MerlinCollection:last()
     return items[#items]
 end
 
+function MerlinCollection:map(callback)
+    if type(callback) ~= "function" then return self end
+
+    local items = self:all()
+    local mapped = {}
+
+    for i = 1, #items do
+        mapped[i] = callback(items[i], i)
+    end
+
+    return self._Class:new(mapped)
+end
+
 function MerlinCollection:pipe(callback)
     if type(callback) == "function" then return callback(self) end
 
@@ -138,6 +175,18 @@ function MerlinCollection:pluck(key)
     end
 
     return self._Class:new(values)
+end
+
+function MerlinCollection:select(...)
+    local keys = {...}
+    return self:map(function(item)
+        local newItem = {}
+        for _, key in ipairs(keys) do
+            newItem[key] = (item.get and item:get(key)) or item[key]
+        end
+
+        return newItem
+    end)
 end
 
 function MerlinCollection:sortBy(key, descending)
@@ -184,7 +233,22 @@ function MerlinCollection:when(condition, callback)
     return self
 end
 
-function MerlinCollection:where(key, value)
+--- @param key string
+--- @operatorOrValue any
+--- @value any|nil
+--- @return MerlinCollection
+function MerlinCollection:where(key, operatorOrValue, value)
+    if value == nil then
+        value = operatorOrValue
+        operatorOrValue = "="
+    end
+
+    local operatorFunc = OPERATORS[operatorOrValue]
+    if not operatorFunc then
+        ---@TODO We need access to Merlins log function - log some stuff about invalid operator
+        return self
+    end
+
     local items = self:all()
     local filtered = {}
 
@@ -192,12 +256,24 @@ function MerlinCollection:where(key, value)
         local item = items[i]
         local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
 
-        if itemValue == value then
+        local success, result = pcall(operatorFunc, itemValue, value)
+        if success and result then
             _insert(filtered, item)
         end
     end
 
     return self._Class:new(filtered)
+end
+
+function MerlinCollection:whereIn(key, table)
+    local lookup = {}
+
+    for _, value in ipairs(table) do lookup[value] = true end
+
+    return self:filter(function(item)
+        local itemValue = (type(item)  == "table" and item.get) and item:get(key)
+        return lookup[itemValue] ~= nil
+    end)
 end
 
 return MerlinCollection
