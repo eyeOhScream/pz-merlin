@@ -776,7 +776,7 @@ function Merlin:onDestroy() log(1, "onDestroy called") end
 
 function Merlin:destroy()
     if rawget(self, "_attributes") == nil then return nil end
-    
+
     local destroyHook = self.onDestroy
     if destroyHook and type(destroyHook) == "function" then
         destroyHook(self)
@@ -797,7 +797,11 @@ end
 
 function Merlin:dispose() return self:destroy() end
 
-function Merlin:collect(items) return require("MerlinCollection"):new(items) end
+function Merlin.collect(items)
+    local CollectionClass = require("MerlinCollection")
+
+    return CollectionClass:new(items)
+end
 
 if not _G.Merlin then _G.Merlin = Merlin end
 

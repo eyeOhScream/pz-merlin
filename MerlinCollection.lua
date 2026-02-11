@@ -10,14 +10,13 @@ local config = {
 local table = table
 local _insert = table.insert
 
----comment
+---comment 
 ---@param items any
 ---@return MerlinCollection|Merlin|table
 function MerlinCollection:new(items)
     local collection = Merlin.new(self)
 
     collection:set(config.storage, items or {})
-
     return collection
 end
 
@@ -32,9 +31,7 @@ function MerlinCollection:destroy(recursive)
     if recursive then
         for i = 1, #items do
             local item = items[i]
-            if type(item) == "table" and item.destroy then
-                item:destroy()
-            end
+            if type(item) == "table" and item.destroy then item:destroy() end
         end
     end
 
@@ -65,7 +62,6 @@ function MerlinCollection:filter(callback)
         if callback(items[i], i) then _insert(filtered, items[i]) end
     end
 
-    -- Return a new collection
     return self._Class:new(filtered)
 end
 
@@ -80,10 +76,7 @@ function MerlinCollection:firstWhere(key, value)
     for i = 1, #items do
         local item = items[i]
         local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-
-        if itemValue == value then
-            return item
-        end
+        if itemValue == value then return item end
     end
 
     return nil
@@ -127,6 +120,12 @@ function MerlinCollection:last()
     return items[#items]
 end
 
+function MerlinCollection:pipe(callback)
+    if type(callback) == "function" then return callback(self) end
+
+    return self
+end
+
 function MerlinCollection:pluck(key)
     local items = self:get(config.storage, {})
     local values = {}
@@ -164,17 +163,24 @@ end
 function MerlinCollection:sortByDescending(key) return self:sortBy(key, true) end
 
 function MerlinCollection:tap(callback)
-    callback(self)
+    if type(callback) == "function" then
+        callback(self)
+        return self
+    end
+
     return self
 end
 
 function MerlinCollection:toArray() return self:all() end
 
-function MerlinCollection:when(condition, callback)
-    if condition then
-        return callback(self) or self
-    end
+function MerlinCollection:unless(condition, callback)
+    if type(callback) == "function" then return self:when(not condition, callback) end
 
+    return self
+end
+
+function MerlinCollection:when(condition, callback)
+    if condition and type(callback) == "function" then return callback(self) or self end
     return self
 end
 
@@ -191,7 +197,6 @@ function MerlinCollection:where(key, value)
         end
     end
 
-    -- Return a new collection
     return self._Class:new(filtered)
 end
 
