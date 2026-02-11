@@ -176,17 +176,9 @@ function MerlinCollection:pipe(callback)
 end
 
 function MerlinCollection:pluck(key)
-    local items = self:get(config.storage, {})
-    local values = {}
-
-    for i = 1, #items do
-        local item = items[i]
-        local value = item.get and item:get(key) or item[key]
-
-        _insert(values, value)
-    end
-
-    return self._Class:new(values)
+    return self:map(function(item)
+        return (type(item) == "table" and item.get) and item:get(key) or item[key]
+    end)
 end
 
 function MerlinCollection:select(...)
