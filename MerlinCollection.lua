@@ -3,9 +3,9 @@ local Merlin = require("Merlin")
 ---@class MerlinCollection : Merlin
 local MerlinCollection = Merlin:derive("Collection")
 
-local config = {
-    storage = "__merlinCollection"
-}
+-- local config = {
+--     storage = "__merlinCollection"
+-- }
 
 local table = table
 local _insert = table.insert
@@ -37,7 +37,12 @@ end
 function MerlinCollection:new(items)
     local collection = Merlin.new(self)
 
-    collection:set(config.storage, items or {})
+    if items then
+        for key, value in pairs(items) do
+            collection:set(key, value)
+        end
+    end
+
     return collection
 end
 
@@ -45,7 +50,19 @@ function MerlinCollection:add(item)
     return self:push(item)
 end
 
-function MerlinCollection:all() return self:get(config.storage, {}) end
+function MerlinCollection:all()
+    -- -- returning a shallow copy for now
+    -- local items = {}
+
+    -- for key, value in pairs(self) do
+    --     if type(value) ~= "function" and key ~= "__index" then
+    --         items[key] = value
+    --     end
+    -- end
+
+    -- return items
+    return self
+end
 
 function MerlinCollection:cast(className)
     local Class = Merlin._Registry[className]
@@ -70,13 +87,13 @@ function MerlinCollection:destroy(recursive)
         end
     end
 
-    self:set(config.storage, nil)
+    -- self:set(config.storage, nil)
 
     return Merlin.destroy(self)
 end
 
 function MerlinCollection:each(callback)
-    local items = self:get(config.storage, {})
+    local items = self:all()
 
     for i = 1, #items do
         if callback(items[i], i) == false then break end
@@ -90,7 +107,7 @@ end
 ---@return MerlinCollection
 function MerlinCollection:filter(callback)
     -- local collection = self._Class:new
-    local items = self:get(config.storage, {})
+    local items = self:all()
     local filtered = {}
 
     for i = 1, #items do
@@ -212,17 +229,9 @@ function MerlinCollection:pluck(key)
     end)
 end
 
-function MerlinCollection:push(item)
-    local storage = self:get(config.storage)
+function MerlinCollection:push(item) return self:set(#self + 1, item) end
 
-    _insert(storage, item)
-
-    return self
-end
-
-function MerlinCollection:put(key, value)
-    return self:set(key, value)
-end
+function MerlinCollection:put(key, value) return self:set(key, value) end
 
 function MerlinCollection:select(...)
     local keys = {...}
