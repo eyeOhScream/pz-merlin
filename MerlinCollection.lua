@@ -41,6 +41,10 @@ function MerlinCollection:new(items)
     return collection
 end
 
+function MerlinCollection:add(item)
+    return self:push(item)
+end
+
 function MerlinCollection:all() return self:get(config.storage, {}) end
 
 function MerlinCollection:cast(className)
@@ -206,6 +210,18 @@ function MerlinCollection:pluck(key)
     return self:map(function(item)
         return (type(item) == "table" and item.get) and item:get(key) or item[key]
     end)
+end
+
+function MerlinCollection:push(item)
+    local storage = self:get(config.storage)
+
+    _insert(storage, item)
+
+    return self
+end
+
+function MerlinCollection:put(key, value)
+    return self:set(key, value)
 end
 
 function MerlinCollection:select(...)
