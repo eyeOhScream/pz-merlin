@@ -24,8 +24,12 @@ local OPERATORS = {
     ["like"] = function(a, b) return tostring(a):find(tostring(b), 1, true) ~= nil end
 }
 
+local function _resolve(item, key)
+    return (type(item) == "table" and item.get) and item:get(key) or item[key]
+end
+
 local function _matches(item, key, operatorFunc, value)
-    local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+    local itemValue = _resolve(item, key)
     local success, result = pcall(operatorFunc, itemValue, value)
     return success and result
 end
@@ -51,16 +55,6 @@ function MerlinCollection:add(item)
 end
 
 function MerlinCollection:all()
-    -- -- returning a shallow copy for now
-    -- local items = {}
-
-    -- for key, value in pairs(self) do
-    --     if type(value) ~= "function" and key ~= "__index" then
-    --         items[key] = value
-    --     end
-    -- end
-
-    -- return items
     return rawget(self, "_attributes")
 end
 
@@ -135,11 +129,12 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     local items = self:all()
     for i = 1, #items do
         local item = items[i]
-        if item ~= nil then
-            local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-            local success, result = pcall(operatorFunc, itemValue, value)
-            if success and result then return item end
-        end
+        if _matches(item, key, operatorFunc, value) then return item end
+        -- if item ~= nil then
+        --     -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        --     -- local success, result = pcall(operatorFunc, itemValue, value)
+        --     -- if success and result then return item end
+        -- end
     end
 
     return nil
@@ -151,27 +146,16 @@ function MerlinCollection:groupBy(key)
 
     for i = 1, #items do
         local item = items[i] or {}
-        
-        -- Try instance get, then check the class for metadata like _Type
         local groupKey = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        
-        -- Fallback for Class-level metadata (like _Type or _Name)
-        if groupKey == nil and type(item) == "table" then
-            local class = rawget(item, "_Class")
-            groupKey = class and rawget(class, key)
-        end
 
-        groupKey = tostring(groupKey or "Unknown")
+        groupKey = groupKey or tostring(groupKey or "undefined")
 
-        if not groups[groupKey] then groups[groupKey] = {} end
-        _insert(groups[groupKey], item)
+        if not groups[groupKey] then groups[groupKey] = MerlinCollection:new({}) end
+
+        groups[groupKey]:push(item)
     end
 
-    for gKey, gItems in pairs(groups) do
-        groups[gKey] = self._Class:new(gItems)
-    end
-
-    return self._Class:new(groups)
+    return MerlinCollection:new(groups)
 end
 
 function MerlinCollection:isEmpty() return #self:all() == 0 end
@@ -197,26 +181,41 @@ function MerlinCollection:lastWhere(key, operatorOrValue, value)
     -- Iterate backwards
     for i = #items, 1, -1 do
         local item = items[i] or {}
-        local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        
-        local success, result = pcall(operatorFunc, itemValue, value)
-        if success and result then return item end
+        if _matches(item, key, operatorFunc, value) then return item end
     end
 
     return nil
 end
 
-function MerlinCollection:map(callback)
+function MerlinCollection:map(callback, keepNilValues)
+    if keepNilValues == nil then keepNilValues = false end
+
+    ---@TODO need a log entry here for trouble-shooting
+    if type(keepNilValues) ~= "boolean" then return self end
+    ---@TODO need a log entry here for trouble-shooting
     if type(callback) ~= "function" then return self end
 
     local items = self:all()
     local mapped = {}
 
     for i = 1, #items do
-        mapped[i] = callback(items[i], i)
+        local result = callback(items[i], i)
+
+        if result ~= nil then
+            if keepNilValues then
+                mapped[i] = result
+            else
+                _insert(mapped, result)
+            end
+        elseif result == nil and keepNilValues then
+            -- Note: In Lua, assigning nil to a key is redundant, 
+            -- but we keep the logic explicit for clarity.
+            mapped[i] = nil
+        end
+        -- mapped[i] = callback(items[i], i)
     end
 
-    return self._Class:new(mapped)
+    return MerlinCollection:new(mapped)
 end
 
 function MerlinCollection:pipe(callback)
@@ -236,8 +235,21 @@ function MerlinCollection:push(item)
     return self:set(#items + 1, item)
 end
 
-function MerlinCollection:put(key, value)
-    return self:set(key, value)
+function MerlinCollection:put(key, value) return self:set(key, value) end
+
+function MerlinCollection:reduce(callback, initial)
+    ---@TODO we need a log entry here
+    if type(callback) ~= "function" then return self end
+
+    local items = self:all()
+    local accumulator = initial
+
+    for i = 1, #items do
+        local item = items[i]
+        accumulator = callback(accumulator, item, i)
+    end
+
+    return accumulator
 end
 
 function MerlinCollection:select(...)
@@ -253,6 +265,11 @@ function MerlinCollection:select(...)
 end
 
 function MerlinCollection:sortBy(key, descending)
+    if descending == nil then descending = false end
+
+    ---@TODO we need to toss a log entry here
+    if type(descending) ~= "boolean" then return self end
+
     local items = self:all()
     local sorted = {}
 
@@ -269,7 +286,7 @@ function MerlinCollection:sortBy(key, descending)
         return valA < valB
     end)
 
-    return self._Class:new(sorted)
+    return MerlinCollection:new(sorted)
 end
 
 function MerlinCollection:sortByDescending(key) return self:sortBy(key, true) end
@@ -323,10 +340,17 @@ end
 function MerlinCollection:whereIn(key, values)
     local lookup = {}
 
-    for _, value in ipairs(values) do lookup[value] = true end
+    -- If values is a MerlinCollection, get the raw table
+    local rawValues = (type(values) == "table" and values.all) and values:all() or values
+
+    -- Safety: If values is nil or not a table, return empty or self
+    if type(rawValues) ~= "table" then return MerlinCollection:new({}) end
+
+    for _, value in ipairs(rawValues) do lookup[value] = true end
 
     return self:filter(function(item)
-        local itemValue = (type(item)  == "table" and item.get) and item:get(key)
+        -- local itemValue = (type(item)  == "table" and item.get) and item:get(key)
+        local itemValue = _resolve(item, key)
         return lookup[itemValue] ~= nil
     end)
 end
