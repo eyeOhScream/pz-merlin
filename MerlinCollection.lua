@@ -61,7 +61,7 @@ function MerlinCollection:all()
     -- end
 
     -- return items
-    return self
+    return rawget(self, "_attributes")
 end
 
 function MerlinCollection:cast(className)
@@ -135,9 +135,11 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     local items = self:all()
     for i = 1, #items do
         local item = items[i]
-        local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        local success, result = pcall(operatorFunc, itemValue, value)
-        if success and result then return item end
+        if item ~= nil then
+            local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+            local success, result = pcall(operatorFunc, itemValue, value)
+            if success and result then return item end
+        end
     end
 
     return nil
@@ -148,7 +150,7 @@ function MerlinCollection:groupBy(key)
     local groups = {}
 
     for i = 1, #items do
-        local item = items[i]
+        local item = items[i] or {}
         
         -- Try instance get, then check the class for metadata like _Type
         local groupKey = (type(item) == "table" and item.get) and item:get(key) or item[key]
@@ -194,7 +196,7 @@ function MerlinCollection:lastWhere(key, operatorOrValue, value)
     local items = self:all()
     -- Iterate backwards
     for i = #items, 1, -1 do
-        local item = items[i]
+        local item = items[i] or {}
         local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
         
         local success, result = pcall(operatorFunc, itemValue, value)
@@ -229,9 +231,14 @@ function MerlinCollection:pluck(key)
     end)
 end
 
-function MerlinCollection:push(item) return self:set(#self + 1, item) end
+function MerlinCollection:push(item)
+    local items = rawget(self, "_attributes")
+    return self:set(#items + 1, item)
+end
 
-function MerlinCollection:put(key, value) return self:set(key, value) end
+function MerlinCollection:put(key, value)
+    return self:set(key, value)
+end
 
 function MerlinCollection:select(...)
     local keys = {...}
