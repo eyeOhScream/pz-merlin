@@ -9,6 +9,11 @@ local config = {
 
 local table = table
 local _insert = table.insert
+local function _matches(item, key, operatorFunc, value)
+    local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+    local success, result = pcall(operatorFunc, itemValue, value)
+    return success and result
+end
 
 -- Query Operators
 local OPERATORS = {
@@ -107,12 +112,15 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     local items = self:all()
     for i = 1, #items do
         local item = items[i]
-        local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-
-        local success, result = pcall(operatorFunc, itemValue, value)
-        if success and result then
-            return item
-        end
+        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        -- local success, result = pcall(operatorFunc, itemValue, value)
+        -- return success and result
+        return _matches(item, key, operatorFunc, value)
+        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        -- local success, result = pcall(operatorFunc, itemValue, value)
+        -- if success and result then
+        --     return item
+        -- end
     end
 
     return nil
@@ -154,6 +162,35 @@ function MerlinCollection:isNotEmpty() return not self:isEmpty() end
 function MerlinCollection:last()
     local items = self:all()
     return items[#items]
+end
+
+function MerlinCollection:lastWhere(key, operatorOrValue, value)
+    if value == nil then
+        value = operatorOrValue
+        operatorOrValue = "="
+    end
+
+    local operatorFunc = OPERATORS[operatorOrValue]
+    ---@TODO log an error here
+    if not operatorFunc then return nil end
+
+    local items = self:all()
+    -- Iterate backwards
+    for i = #items, 1, -1 do
+        local item = items[i]
+
+        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        -- local success, result = pcall(operatorFunc, itemValue, value)
+        -- return success and result
+        return _matches(item, key, operatorFunc, value)
+        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        -- local success, result = pcall(operatorFunc, itemValue, value)
+        -- if success and result then
+        --     return item
+        -- end
+    end
+
+    return nil
 end
 
 function MerlinCollection:map(callback)
@@ -254,9 +291,10 @@ function MerlinCollection:where(key, operatorOrValue, value)
     end
 
     return self:filter(function(item)
-        local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        local success, result = pcall(operatorFunc, itemValue, value)
-        return success and result
+        return _matches(item, key, operatorFunc, value)
+        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
+        -- local success, result = pcall(operatorFunc, itemValue, value)
+        -- return success and result
     end)
 end
 
