@@ -348,6 +348,20 @@ function MerlinCollection:where(key, operatorOrValue, value)
     end)
 end
 
+function MerlinCollection:whereBetween(key, range)
+    if type(range) ~= "table" or #range < 2 then
+        _typeError("MerlinCollection:whereBetween()", "range", "table {min, max}", range)
+        return self
+    end
+
+    local min, max = range[1], range[2]
+
+    return self:filter(function(item)
+        local val = _resolve(item, key)
+        return type(val) == "number" and val >= min and val <= max
+    end)
+end
+
 function MerlinCollection:whereIn(key, values)
     local lookup = {}
 
@@ -363,6 +377,33 @@ function MerlinCollection:whereIn(key, values)
         -- local itemValue = (type(item)  == "table" and item.get) and item:get(key)
         local itemValue = _resolve(item, key)
         return lookup[itemValue] ~= nil
+    end)
+end
+
+function MerlinCollection:whereInstanceOf(className)
+    local Class = Merlin._Registry[className]
+    
+    if not Class then
+        _typeError("MerlinCollection:whereInstanceOf()", "className", "registered Merlin class", nil, className)
+        return self
+    end
+
+    return self:filter(function(item)
+        return type(item) == "table" and item.instanceOf and item:instanceOf(Class)
+    end)
+end
+
+function MerlinCollection:whereNotBetween(key, range)
+    if type(range) ~= "table" or #range < 2 then
+        _typeError("MerlinCollection:whereNotBetween()", "range", "table {min, max}", range)
+        return self
+    end
+
+    local min, max = range[1], range[2]
+
+    return self:filter(function(item)
+        local val = _resolve(item, key)
+        return type(val) == "number" and (val < min or val > max)
     end)
 end
 
