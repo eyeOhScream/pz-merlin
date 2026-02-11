@@ -76,7 +76,7 @@ end
 
 ---comment
 ---@param callback function
----@return MerlinCollection|Merlin|table
+---@return MerlinCollection
 function MerlinCollection:filter(callback)
     -- local collection = self._Class:new
     local items = self:get(config.storage, {})
@@ -253,26 +253,17 @@ function MerlinCollection:where(key, operatorOrValue, value)
         return self
     end
 
-    local items = self:all()
-    local filtered = {}
-
-    for i = 1, #items do
-        local item = items[i]
+    return self:filter(function(item)
         local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-
         local success, result = pcall(operatorFunc, itemValue, value)
-        if success and result then
-            _insert(filtered, item)
-        end
-    end
-
-    return self._Class:new(filtered)
+        return success and result
+    end)
 end
 
-function MerlinCollection:whereIn(key, table)
+function MerlinCollection:whereIn(key, values)
     local lookup = {}
 
-    for _, value in ipairs(table) do lookup[value] = true end
+    for _, value in ipairs(values) do lookup[value] = true end
 
     return self:filter(function(item)
         local itemValue = (type(item)  == "table" and item.get) and item:get(key)
