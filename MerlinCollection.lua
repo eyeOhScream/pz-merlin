@@ -1,4 +1,5 @@
 local Merlin = require("Merlin")
+local Evaluator = require("MerlinEvaluator")
 
 ---@class MerlinCollection : Merlin
 local MerlinCollection = Merlin:derive("MerlinCollection")
