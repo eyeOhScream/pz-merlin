@@ -296,6 +296,25 @@ function Merlin:bridge(pzClass, typeName)
     return MerlinStaff
 end
 
+function Merlin:extend(extension, ...)
+    if type(extension) ~= "table" then
+        ---@TODO push the _typeError up from the MerlinCollections class...
+        error("Merlin:extend() expects a table (module), got " .. type(extension))     
+    end
+
+    for key, value in pairs(extension) do
+        if key ~= "onExtend" then
+            self[key] = value
+        end
+    end
+
+    if type(extension.onExtend) == "function" then
+        extension.onExtend(self, ...)
+    end
+
+    return self
+end
+
 function Merlin:__init(...)
     log(1, "__init called on %s", Merlin.config.logPrefix)
 end
