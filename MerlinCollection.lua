@@ -1,5 +1,5 @@
 local Merlin = require("Merlin")
-local Evaluator = require("MerlinEvaluator")
+local MerlinEvaluator = require("MerlinEvaluator")
 
 ---@class MerlinCollection : Merlin
 local MerlinCollection = Merlin:derive("MerlinCollection")
@@ -343,9 +343,6 @@ function MerlinCollection:where(key, operatorOrValue, value)
 
     return self:filter(function(item)
         return _matches(item, key, operatorFunc, value)
-        -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        -- local success, result = pcall(operatorFunc, itemValue, value)
-        -- return success and result
     end)
 end
 
