@@ -1,6 +1,4 @@
 local MerlinEvaluator = require("MerlinEvaluator")
--- local MerlinCollection = require("MerlinCollection")
-
 
 local MerlinQueryBuilder = {}
 MerlinQueryBuilder.__index = MerlinQueryBuilder
@@ -60,12 +58,12 @@ function MerlinQueryBuilder:get()
 end
 
 function MerlinQueryBuilder:where(key, operatorOrValue, value)
-    local k, operatorFunc, expected = MerlinEvaluator:normalizeKey(key, operatorOrValue, value)
+    local k, opFunc, expected = MerlinEvaluator:normalizeKey(key, operatorOrValue, value)
 
     _insert(self._pipeline, {
         type = "where",
         key = k,
-        operatorFunc = operatorFunc,
+        operatorFunc = opFunc,
         expected = expected
     })
 

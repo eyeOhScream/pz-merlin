@@ -9,9 +9,9 @@ local _contains = function(expected, actual)
     if type(expected.each) == "function" then
         local found = false
         expected:each(function(item)
-            if item == actual then 
+            if item == actual then
                 found = true
-                return false -- Break 'each' loop
+                return false
             end
         end)
         return found
@@ -19,11 +19,11 @@ local _contains = function(expected, actual)
 
     -- Handle Raw Table
     for i = 1, #expected do
-        if expected[i] == actual then 
-            return true 
+        if expected[i] == actual then
+            return true
         end
     end
-    
+
     return false
 end
 
@@ -60,9 +60,6 @@ function MerlinEvaluator:normalizeKey(key, operatorOrValue, value)
         value = operatorOrValue
         operatorOrValue = "="
     end
-    -- Kinda neat but a little too lua for me.. i'd rather do it the way i have been because its more clear
-    -- local operator = value == nil and "=" or operatorOrValue
-    -- local expected = value == nil and operatorOrValue or value
 
     local operatorFunc = self.OPERATORS[operatorOrValue]
     if not operatorFunc then
@@ -72,15 +69,6 @@ function MerlinEvaluator:normalizeKey(key, operatorOrValue, value)
 
     return key, operatorFunc, value
 end
-
--- function MerlinEvaluator:resolve(item, key)
---     -- something here - we'll see
---     if type(item) ~= "table" then return nil end
-
---     if item.get and type(item.get) == "function" then return item:get(key) end
-
---     return item[key]
--- end
 
 function MerlinEvaluator:resolve(item, key)
     if type(item) ~= "table" then return nil end
@@ -98,13 +86,11 @@ function MerlinEvaluator:resolve(item, key)
         for i = 1, #path do
             if type(current) ~= "table" then return nil end
             local part = path[i]
-            -- Use your existing Merlin :get() logic at every step
             current = (type(current.get) == "function") and current:get(part) or current[part]
         end
         return current
     end
 
-    -- Existing shallow logic
     if type(item.get) == "function" then return item:get(key) end
     return item[key]
 end
