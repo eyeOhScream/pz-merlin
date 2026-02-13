@@ -1,5 +1,6 @@
 local Merlin = require("Merlin")
-local MerlinEvaluator = require("MerlinEvaluator")
+-- local MerlinEvaluator = require("MerlinEvaluator")
+-- local MerlinQueryBuilder = require("MerlinQueryBuilder")
 
 ---@class MerlinCollection : Merlin
 local MerlinCollection = Merlin:derive("MerlinCollection")
@@ -44,7 +45,7 @@ local function _typeError(method, parameter, expectedType, value, receivedTypeOv
 end
 
 ---@param items any
----@return MerlinCollection|Merlin|table
+---@return MerlinCollection
 function MerlinCollection:new(items)
     local collection = Merlin.new(self)
 
@@ -133,11 +134,6 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     for i = 1, #items do
         local item = items[i]
         if _matches(item, key, operatorFunc, value) then return item end
-        -- if item ~= nil then
-        --     -- local itemValue = (type(item) == "table" and item.get) and item:get(key) or item[key]
-        --     -- local success, result = pcall(operatorFunc, itemValue, value)
-        --     -- if success and result then return item end
-        -- end
     end
 
     return nil
@@ -246,6 +242,11 @@ end
 
 function MerlinCollection:put(key, value) return self:set(key, value) end
 
+function MerlinCollection:query()
+    local MerlinQueryBuilder = require("MerlinQueryBuilder")
+    return MerlinQueryBuilder:new(self)
+end
+
 function MerlinCollection:reduce(callback, initial)
     ---@TODO we need a log entry here
     if type(callback) ~= "function" then return self end
@@ -329,21 +330,8 @@ end
 --- @operatorOrValue any
 --- @value any|nil
 --- @return MerlinCollection
-function MerlinCollection:where(key, operatorOrValue, value)
-    if value == nil then
-        value = operatorOrValue
-        operatorOrValue = "="
-    end
-
-    local operatorFunc = OPERATORS[operatorOrValue]
-    if not operatorFunc then
-        ---@TODO We need access to Merlins log function - log some stuff about invalid operator
-        return self
-    end
-
-    return self:filter(function(item)
-        return _matches(item, key, operatorFunc, value)
-    end)
+function MerlinCollection:where(key, operatorOrValue, value) 
+    return self:query():where(key, operatorOrValue, value):get()
 end
 
 function MerlinCollection:whereBetween(key, range)
@@ -360,23 +348,7 @@ function MerlinCollection:whereBetween(key, range)
     end)
 end
 
-function MerlinCollection:whereIn(key, values)
-    local lookup = {}
-
-    -- If values is a MerlinCollection, get the raw table
-    local rawValues = (type(values) == "table" and values.all) and values:all() or values
-
-    -- Safety: If values is nil or not a table, return empty or self
-    if type(rawValues) ~= "table" then return MerlinCollection:new({}) end
-
-    for _, value in ipairs(rawValues) do lookup[value] = true end
-
-    return self:filter(function(item)
-        -- local itemValue = (type(item)  == "table" and item.get) and item:get(key)
-        local itemValue = _resolve(item, key)
-        return lookup[itemValue] ~= nil
-    end)
-end
+function MerlinCollection:whereIn(key, values) return self:query():whereIn(key, values):get() end
 
 function MerlinCollection:whereInstanceOf(className)
     local Class = Merlin._Registry[className]
@@ -404,6 +376,8 @@ function MerlinCollection:whereNotBetween(key, range)
         return type(val) == "number" and (val < min or val > max)
     end)
 end
+
+function MerlinCollection:whereNotIn(key, values) return self:query():whereNotIn(key, values):get() end
 
 if _G.MERLINCOLLECTION_TEST_MODE then
     MerlinCollection._test = {
