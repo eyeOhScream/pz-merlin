@@ -1,5 +1,6 @@
 local Merlin = require("Merlin")
 local MerlinCollection = require("MerlinCollection")
+local MerlinEvaluator = require("MerlinEvaluator")
 
 local function stressTestAttributes()
     local obj = Merlin:bridge({}, "StressTest")
@@ -50,6 +51,37 @@ local function stressTestDirtyReset()
     print(string.format("DIRTY RESET STRESS: 2k objects took %.4f seconds", duration))
 end
 
+local function testResolvePerformance()
+    print("Running Test: Resolve Performance (Shallow vs Deep)")
+    
+    local deepObj = {
+        stats = {
+            xp = {
+                strength = 100
+            }
+        }
+    }
+    
+    local iterations = 1000
+    
+    -- TEST 1: Shallow Access (Should be near 0.000s)
+    local start1 = os.clock()
+    for i = 1, iterations do
+        local _ = deepObj.stats -- Standard Lua
+    end
+    print(string.format("  - Shallow Access: %.4fs", os.clock() - start1))
+
+    -- TEST 2: Current Merlin:resolve (Deep)
+    -- This simulates what happened in your 1.6s stress test
+    local start2 = os.clock()
+    for i = 1, iterations do
+        -- If Merlin:resolve is splitting strings here, this will spike
+        local _ = MerlinEvaluator:resolve(deepObj, "stats.xp.strength")
+    end
+    print(string.format("  - Merlin:resolve (Deep): %.4fs", os.clock() - start2))
+end
+
 stressTestAttributes()
 stressTestCollectionChains()
 stressTestDirtyReset()
+testResolvePerformance()

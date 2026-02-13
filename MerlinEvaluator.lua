@@ -1,4 +1,5 @@
 local MerlinEvaluator = {}
+local _pathCache = {}
 
 local _contains = function(expected, actual)
     ---@TODO Need a log entry
@@ -72,12 +73,39 @@ function MerlinEvaluator:normalizeKey(key, operatorOrValue, value)
     return key, operatorFunc, value
 end
 
+-- function MerlinEvaluator:resolve(item, key)
+--     -- something here - we'll see
+--     if type(item) ~= "table" then return nil end
+
+--     if item.get and type(item.get) == "function" then return item:get(key) end
+
+--     return item[key]
+-- end
+
 function MerlinEvaluator:resolve(item, key)
-    -- something here - we'll see
     if type(item) ~= "table" then return nil end
 
-    if item.get and type(item.get) == "function" then return item:get(key) end
+    -- Check if we need to go deep
+    if type(key) == "string" and key:find("%.") then
+        local path = _pathCache[key]
+        if not path then
+            path = {}
+            for part in key:gmatch("[^%.]+") do table.insert(path, part) end
+            _pathCache[key] = path
+        end
 
+        local current = item
+        for i = 1, #path do
+            if type(current) ~= "table" then return nil end
+            local part = path[i]
+            -- Use your existing Merlin :get() logic at every step
+            current = (type(current.get) == "function") and current:get(part) or current[part]
+        end
+        return current
+    end
+
+    -- Existing shallow logic
+    if type(item.get) == "function" then return item:get(key) end
     return item[key]
 end
 
