@@ -47,11 +47,18 @@ end
 ---@param items any
 ---@return MerlinCollection
 function MerlinCollection:new(items)
+    local ArrayList = require("Types.ArrayList")
     local collection = Merlin.new(self)
 
     if items then
-        for key, value in pairs(items) do
-            collection:set(key, value)
+        if ArrayList.is(items) then
+            -- If it's a Java List, we wrap it and store it as the collection data
+            collection:set("_attributes", ArrayList.wrap(items))
+        else
+            -- If it's a Lua table
+            for key, value in pairs(items) do
+                collection:set(key, value)
+            end
         end
     end
 
@@ -60,7 +67,15 @@ end
 
 function MerlinCollection:add(item) return self:push(item) end
 
-function MerlinCollection:all() return rawget(self, "_attributes") end
+function MerlinCollection:all()
+    -- Check for the Proxy first
+    local attr = rawget(self, "_attributes")
+    if attr then return attr end
+    
+    -- Fallback: The collection instance itself holds the Lua-table data
+    return self
+    -- return rawget(self, "_attributes")
+end
 
 function MerlinCollection:cast(className)
     local Class = Merlin._Registry[className]
@@ -79,7 +94,26 @@ function MerlinCollection:cast(className)
     end)
 end
 
-function MerlinCollection:count() return #self:all() end
+function MerlinCollection:contains(item)
+    local items = self:all()
+    local total = self:count()
+
+    for i = 1, total do
+        if items[i] == item then
+            return true
+        end
+    end
+    return false
+end
+
+function MerlinCollection:count()
+    local items = self:all()
+    local ArrayList = require("Types.ArrayList")
+
+    if ArrayList.is(items) then return items:size() end
+
+    return #items
+end
 
 function MerlinCollection:destroy(recursive)
     local items = self:all()
@@ -97,8 +131,9 @@ end
 
 function MerlinCollection:each(callback)
     local items = self:all()
+    local total = self:count()
 
-    for i = 1, #items do
+    for i = 1, total do
         if callback(items[i], i) == false then break end
     end
 

@@ -36,5 +36,4 @@ end
 
 MerlinTests:run()
 
--- Coverage:stop()
--- Coverage:report()
+return MerlinTests

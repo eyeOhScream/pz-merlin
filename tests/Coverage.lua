@@ -1,6 +1,15 @@
+-- Mostly AI written not gonna lie. I do plan to really comb through this later,
+-- but I really wanted coverage without an outside library. There are plenty
+-- of edge cases this will not catch, but as long as it covers my cases -
+-- who cares.
+
+---@TODO - Keep this in mind as a future feature: npx nodemon -e lua --exec "lua tests/MerlinTests.lua"
+
+local debugInfo = debug.getinfo(1, "S") or {}
+
 local Coverage = {
     data = {},
-    ignored_source = debug.getinfo(1, "S").source,
+    ignored_source = debugInfo.source,
     colors = {
         reset = "\27[0m",
         red   = "\27[31m",
@@ -50,6 +59,7 @@ local function is_executable(line)
     if not code or code == "" then return false end
     
     -- 2. Logic to ignore table markers and delimiters
+    ---@type table<string, boolean>
     local ignore_keywords = {
         ["end"] = true, ["else"] = true, ["do"] = true,
         ["repeat"] = true, ["{"] = true, ["}"] = true,
@@ -69,7 +79,7 @@ local function is_executable(line)
 end
 
 local function hook(event, line)
-    local info = debug.getinfo(2, "S")
+    local info = debug.getinfo(2, "S") or {}
     local src = info.source
 
     -- 1. Ignore if no source or if it's a C-function
@@ -90,12 +100,15 @@ function Coverage:start()
 end
 
 function Coverage:stop()
+    ---@diagnostic disable-next-line: missing-parameter
     debug.sethook()
 end
 
 function Coverage:report()
     -- 1. Generate LCOV for VS Code
     local lcov = io.open("lcov.info", "w")
+
+    if lcov == nil then return end
     
     -- 2. Prepare Terminal Summary
     print("\n" .. self.colors.bold .. self.colors.cyan .. "LUA COVERAGE REPORT" .. self.colors.reset)
