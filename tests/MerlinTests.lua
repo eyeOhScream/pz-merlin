@@ -25,11 +25,13 @@ function MerlinTests:TestNewRespectsTableProperties()
         someValue = 111,
     }
 
+    function TestingObject:justReturnTrue() return true end
     
     local Derived = Merlin:derive("TestingObject")
     local instance = Derived:new(TestingObject)
 
     self:assertEqual("TestObject", instance.name)
+    self:assertIsTrue(instance:justReturnTrue())
 end
 
 MerlinTests:run()
