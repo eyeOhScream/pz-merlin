@@ -1,36 +1,39 @@
 local ArrayList = {}
-ArrayList.__index = ArrayList
+local PROXY_TAG = "MERLIN_ARRAYLIST_PROXY"
 
 function ArrayList.is(value)
-    if not value then return false end
-    local t = type(value)
-    if t ~= "userdata" and t ~= "table" then return false end
+    if not value or (type(value) ~= "table" and type(value) ~= "userdata") then return false end
 
-    -- Check if it is the Proxy via string tag (most reliable)
+    -- 1. Check for Proxy Tag
     local mt = getmetatable(value)
-    if mt and mt.__merlin_type == "ArrayListProxy" then return true end
-    
-    -- Check if it is the raw Java/Mock object
-    return value.size ~= nil and value.get ~= nil
+    if mt and mt[PROXY_TAG] then return true end
+
+    -- 2. Check for Java/Mock capability (Size and Get must exist)
+    -- We check the field directly
+    local hasSize = value.size ~= nil
+    local hasGet = value.get ~= nil
+
+    return hasSize and hasGet
 end
 
 function ArrayList.wrap(javaList)
-    -- If it's already a proxy or NOT a list, return as-is
-    local mt = getmetatable(javaList)
-    if (mt and mt.__merlin_type == "ArrayListProxy") or not ArrayList.is(javaList) then 
-        return javaList 
-    end
+    if not ArrayList.is(javaList) then return javaList end
 
     return setmetatable({}, {
-        __merlin_type = "ArrayListProxy",
+        [PROXY_TAG] = true,
+        
         __index = function(_, key)
             if type(key) == "number" then
                 return javaList:get(key - 1)
             end
+
             local val = javaList[key]
             if type(val) == "function" then
-                return function(_, ...) return val(javaList, ...) end
+                return function(_, ...) 
+                    return val(javaList, ...) 
+                end
             end
+            
             return val
         end
     })

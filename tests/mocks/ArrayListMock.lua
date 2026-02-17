@@ -2,9 +2,9 @@ local ArrayListMock = {}
 ArrayListMock.__index = ArrayListMock
 
 function ArrayListMock.new(list)
+    -- We store data in _data so 'pairs' sees nothing in the main table
     local instance = {
-        _data = list or {},
-        -- Attach these directly so ArrayList.is() sees them immediately
+        secretData = list or {},
         size = ArrayListMock.size,
         get = ArrayListMock.get
     }
@@ -12,12 +12,12 @@ function ArrayListMock.new(list)
 end
 
 function ArrayListMock:size()
-    return #self._data
+    return #self.secretData
 end
 
 function ArrayListMock:get(i)
-    -- Simulates Java 0-based indexing
-    return self._data[i + 1]
+    -- Java index 0 = Lua index 1
+    return self.secretData[i + 1]
 end
 
 return ArrayListMock

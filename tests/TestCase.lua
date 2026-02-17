@@ -44,6 +44,52 @@ local function tableToString(t)
     return "{ " .. table.concat(items, ", ") .. " }"
 end
 
+local function dump(value, indent)
+    indent = indent or 0
+    local spacing = string.rep("  ", indent)
+    local reset = "\27[0m"
+    local blue = "\27[34m"
+    local green = "\27[32m"
+    local yellow = "\27[33m"
+
+    if type(value) == "string" then
+        return green .. '"' .. value .. '"' .. reset
+    elseif type(value) == "number" then
+        return blue .. tostring(value) .. reset
+    elseif type(value) == "boolean" then
+        return yellow .. tostring(value) .. reset
+    elseif type(value) == "table" then
+        local mt = getmetatable(value)
+        local prefix = ""
+        
+        -- Identify if it's a Merlin object or an ArrayList Proxy
+        if mt and mt.__merlin_type == "ArrayListProxy" then
+            prefix = "\27[36m[ArrayListProxy]\27[0m "
+        elseif value.name then
+            prefix = "\27[35m[" .. tostring(value.name) .. "]\27[0m "
+        end
+
+        local result = prefix .. "{\n"
+        for k, v in pairs(value) do
+            result = result .. spacing .. "  [" .. dump(k) .. "] => " .. dump(v, indent + 1) .. ",\n"
+        end
+        return result .. spacing .. "}"
+    else
+        return tostring(value)
+    end
+end
+
+-- Global helper for quick debugging (Like PHP's dd)
+_G.dd = function(value)
+    print(dump(value))
+---@diagnostic disable-next-line: missing-parameter
+    os.exit() -- Die Dump
+end
+
+_G.vd = function(value)
+    print(dump(value))
+end
+
 function TestCase:new(name)
     local object = { name = name or self.name }
     setmetatable(object, self)
@@ -72,9 +118,9 @@ end
 
 function TestCase:assertTableEqual(expected, actual, message)
     if not deepCompare(expected, actual) then
-        local err = string.format("%s\n  Expected: %s\n  Actual:   %s", 
-            message or "Table content mismatch", 
-            tableToString(expected), 
+        local err = string.format("%s\n  Expected: %s\n  Actual:   %s",
+            message or "Table content mismatch",
+            tableToString(expected),
             tableToString(actual))
         error(err, 2)
     end

@@ -1,4 +1,5 @@
 local Merlin = require("Merlin")
+local ArrayList = require("Types.ArrayList")
 -- local MerlinEvaluator = require("MerlinEvaluator")
 -- local MerlinQueryBuilder = require("MerlinQueryBuilder")
 
@@ -47,18 +48,17 @@ end
 ---@param items any
 ---@return MerlinCollection
 function MerlinCollection:new(items)
-    local ArrayList = require("Types.ArrayList")
-    local collection = Merlin.new(self)
+    local data = items
 
-    if items then
-        if ArrayList.is(items) then
-            -- If it's a Java List, we wrap it and store it as the collection data
-            collection:set("_attributes", ArrayList.wrap(items))
-        else
-            -- If it's a Lua table
-            for key, value in pairs(items) do
-                collection:set(key, value)
-            end
+    if ArrayList.is(items) then
+        data = ArrayList.wrap(items)
+    end
+
+    local collection = Merlin.new(self, data)
+
+    if not ArrayList.is(items) and type(items) == "table" then
+        for key, value in pairs(items) do
+            collection:set(key, value)
         end
     end
 
@@ -67,14 +67,14 @@ end
 
 function MerlinCollection:add(item) return self:push(item) end
 
-function MerlinCollection:all()
-    -- Check for the Proxy first
-    local attr = rawget(self, "_attributes")
-    if attr then return attr end
-    
-    -- Fallback: The collection instance itself holds the Lua-table data
-    return self
-    -- return rawget(self, "_attributes")
+function MerlinCollection:all(reduceSingleArray)
+    local attributes = rawget(self, "_attributes")
+
+    if type(attributes) ~= "table" and type(attributes) ~= "userdata" then return attributes end
+
+    if reduceSingleArray and self:count() == 1 then return attributes[1] end
+
+    return attributes
 end
 
 function MerlinCollection:cast(className)
@@ -95,7 +95,7 @@ function MerlinCollection:cast(className)
 end
 
 function MerlinCollection:contains(item)
-    local items = self:all()
+    local items = self:all() or {}
     local total = self:count()
 
     for i = 1, total do
@@ -107,10 +107,9 @@ function MerlinCollection:contains(item)
 end
 
 function MerlinCollection:count()
-    local items = self:all()
-    local ArrayList = require("Types.ArrayList")
+    local items = self:all() or {}
 
-    if ArrayList.is(items) then return items:size() end
+    if ArrayList.is(items) and items.size then return items:size() end
 
     return #items
 end
@@ -130,7 +129,7 @@ function MerlinCollection:destroy(recursive)
 end
 
 function MerlinCollection:each(callback)
-    local items = self:all()
+    local items = self:all() or {}
     local total = self:count()
 
     for i = 1, total do
@@ -143,7 +142,7 @@ end
 ---@param callback function
 ---@return MerlinCollection
 function MerlinCollection:filter(callback)
-    local items = self:all()
+    local items = self:all() or {}
     local filtered = {}
 
     for i = 1, #items do
@@ -153,7 +152,7 @@ function MerlinCollection:filter(callback)
     return self._Class:new(filtered)
 end
 
-function MerlinCollection:first() return self:all()[1] end
+function MerlinCollection:first() return (self:all() or {})[1] end
 
 function MerlinCollection:firstWhere(key, operatorOrValue, value)
     if value == nil then
@@ -165,7 +164,7 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     ---@TODO another place we need to log
     if not operatorFunc then return nil end
 
-    local items = self:all()
+    local items = self:all() or {}
     for i = 1, #items do
         local item = items[i]
         if _matches(item, key, operatorFunc, value) then return item end
@@ -174,8 +173,30 @@ function MerlinCollection:firstWhere(key, operatorOrValue, value)
     return nil
 end
 
+function MerlinCollection:flatten()
+    local results = {}
+
+    self:each(function(item)
+        if type(item) == "table" or ArrayList.is(item) then
+            local count = (ArrayList.is(item) and item:size() or #item)
+            if count > 0 then
+                for i = 1, count do
+                    local val = item[i] or (item.get and item:get(i-1))
+                    _insert(results, val)
+                end
+            else
+                _insert(results, item)
+            end
+        else
+            _insert(results, item)
+        end
+    end)
+
+    return MerlinCollection:new(results)
+end
+
 function MerlinCollection:groupBy(key)
-    local items = self:all()
+    local items = self:all() or {}
     local groups = {}
 
     for i = 1, #items do
@@ -197,8 +218,8 @@ function MerlinCollection:isEmpty() return #self:all() == 0 end
 function MerlinCollection:isNotEmpty() return not self:isEmpty() end
 
 function MerlinCollection:last()
-    local items = self:all()
-    return items[#items]
+    local items = self:all() or {}
+    return items[self:count()]
 end
 
 function MerlinCollection:lastWhere(key, operatorOrValue, value)
@@ -211,10 +232,10 @@ function MerlinCollection:lastWhere(key, operatorOrValue, value)
     ---@TODO log an error here
     if not operatorFunc then return nil end
 
-    local items = self:all()
+    local items = self:all() or {}
     -- Iterate backwards
     for i = #items, 1, -1 do
-        local item = items[i] or {}
+        local item = items[i]
         if _matches(item, key, operatorFunc, value) then return item end
     end
 
@@ -234,10 +255,11 @@ function MerlinCollection:map(callback, keepNilValues)
         return self
     end
 
-    local items = self:all()
+    local items = self:all() or {}
+    local total = self:count()
     local mapped = {}
 
-    for i = 1, #items do
+    for i = 1, total do
         local result = callback(items[i], i)
 
         if result ~= nil then
@@ -247,14 +269,13 @@ function MerlinCollection:map(callback, keepNilValues)
                 _insert(mapped, result)
             end
         elseif result == nil and keepNilValues then
-            -- Note: In Lua, assigning nil to a key is redundant, 
-            -- but we keep the logic explicit for clarity.
+            -- keeping the logic explicit for clarity
             mapped[i] = nil
         end
-        -- mapped[i] = callback(items[i], i)
     end
 
     return MerlinCollection:new(mapped)
+    -- return MerlinCollection:new(ArrayList.wrap(mapped))
 end
 
 function MerlinCollection:pipe(callback)
@@ -286,7 +307,7 @@ function MerlinCollection:reduce(callback, initial)
     ---@TODO we need a log entry here
     if type(callback) ~= "function" then return self end
 
-    local items = self:all()
+    local items = self:all() or {}
     local accumulator = initial
 
     for i = 1, #items do
@@ -315,7 +336,7 @@ function MerlinCollection:sortBy(key, descending)
     ---@TODO we need to toss a log entry here
     if type(descending) ~= "boolean" then return self end
 
-    local items = self:all()
+    local items = self:all() or {}
     local sorted = {}
 
     for i = 1, #items do sorted[i] = items[i] end
@@ -380,6 +401,17 @@ function MerlinCollection:whereBetween(key, range)
     return self:filter(function(item)
         local val = _resolve(item, key)
         return type(val) == "number" and val >= min and val <= max
+    end)
+end
+
+function MerlinCollection:whereHas(key, callback)
+    return self:filter(function(item)
+        return callback(
+            MerlinCollection
+                :new(require("MerlinEvaluator"):resolve(item, key))
+                :query())
+            :get()
+            :count() > 0
     end)
 end
 
